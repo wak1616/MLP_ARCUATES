@@ -22,7 +22,7 @@ class SimpleMonotonicNN(nn.Module):
         monotonic_out = F.softplus(self.monotonic_weight) * x_monotonic
         return regular_out + monotonic_out
 
-def predict_arcuate_sweep(age, steep_axis_term, type_str, residual_astig, ideal_tx_astig):
+def predict_arcuate_sweep(age, steep_axis_term, type_str, residual_astig, treated_astig):
     """
     Make predictions with the trained model.
     
@@ -31,13 +31,13 @@ def predict_arcuate_sweep(age, steep_axis_term, type_str, residual_astig, ideal_
     - steep_axis_term: steep axis term
     - type_str: type (string, either 'paired' [typemapped as 0] or 'single' [typemapped as 1])
     - residual_astig: residual astigmatism
-    - ideal_tx_astig: ideal tx astigmatism
+    - treated_astig: ideal tx astigmatism
     
     Returns:
     - predicted arcuate sweep
     """
-    # Check if ideal_tx_astig is below threshold
-    if ideal_tx_astig < 0.25:
+    # Check if treated_astig is below threshold
+    if treated_astig < 0.25:
         return 0.00
         
     # Load encoders and scalers
@@ -52,12 +52,12 @@ def predict_arcuate_sweep(age, steep_axis_term, type_str, residual_astig, ideal_
     model.eval()
     
     # Prepare input data
-    regular_features = ['Age', 'Steep_axis_term', 'type', 'Residual_Astigmatism', 'ideal_tx_astig']
+    regular_features = ['Age', 'Steep_axis_term', 'type', 'Residual_Astigmatism', 'treated_astig']
     type_encoded = le.transform([type_str])[0]
-    regular_data = pd.DataFrame([[age, steep_axis_term, type_encoded, residual_astig, ideal_tx_astig]], 
+    regular_data = pd.DataFrame([[age, steep_axis_term, type_encoded, residual_astig, treated_astig]], 
                               columns=regular_features)
-    monotonic_data = pd.DataFrame([[ideal_tx_astig]], 
-                                columns=['ideal_tx_astig'])
+    monotonic_data = pd.DataFrame([[treated_astig]], 
+                                columns=['treated_astig'])
     
     # Scale inputs
     regular_scaled = regular_scaler.transform(regular_data)
@@ -83,14 +83,14 @@ if __name__ == "__main__":
             'steep_axis_term': 0,
             'type_str': 'paired',
             'residual_astig': 0,
-            'ideal_tx_astig': 0.4
+            'treated_astig': 0.4
         },
         {
             'age': 70,
             'steep_axis_term': 0,
             'type_str': 'single',
             'residual_astig': 0,
-            'ideal_tx_astig': 0.4
+            'treated_astig': 0.4
         }
     ]
     
@@ -100,7 +100,7 @@ if __name__ == "__main__":
             example['steep_axis_term'],
             example['type_str'],
             example['residual_astig'],
-            example['ideal_tx_astig']
+            example['treated_astig']
         )
         print(f"\nExample {i}:")
         print(f"Inputs: {example}")

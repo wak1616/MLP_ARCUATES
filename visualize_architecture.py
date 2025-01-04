@@ -14,7 +14,7 @@ def create_network_visualization():
         'activation': {'fillcolor': '#FFE6E6', 'color': '#D62728'},  # Light red
         'arithmetic': {'fillcolor': '#E6FFE6', 'color': '#2CA02C'},  # Light green
         'output': {'fillcolor': '#FFFDE6', 'color': '#FF7F0E'},  # Light yellow
-        'special': {'fillcolor': 'lightyellow', 'color': 'red'}  # For ideal_tx_astig
+        'special': {'fillcolor': 'lightyellow', 'color': 'red'}  # For treated_astig
     }
     
     print("Creating input layer...")
@@ -26,7 +26,7 @@ def create_network_visualization():
         c.node('i2', 'Steep_axis_term\n(1 unit)', style='filled', fillcolor=colors['input']['fillcolor'])
         c.node('i3', 'Type\n(1 unit)', style='filled', fillcolor=colors['input']['fillcolor'])
         c.node('i4', 'Residual_Astig\n(1 unit)', style='filled', fillcolor=colors['input']['fillcolor'])
-        c.node('i5', 'ideal_tx_astig\n(1 unit)', style='filled', 
+        c.node('i5', 'treated_astig\n(1 unit)', style='filled', 
                fillcolor=colors['special']['fillcolor'], color=colors['special']['color'])
     
     print("Creating paths...")
@@ -99,7 +99,7 @@ def create_network_visualization():
                '• Green: Arithmetic operations\n' +
                '• Yellow: Output layers\n' +
                '• Grey: Input features\n' +
-               '• Red outline: Special input\n(ideal_tx_astig)', 
+               '• Red outline: Special input\n(treated_astig)', 
                shape='note')
         c.node('note2', 'All activations are ReLU\nexcept where noted', shape='note')
         c.node('note3', 'Numbers in parentheses\nshow tensor dimensions', shape='note')

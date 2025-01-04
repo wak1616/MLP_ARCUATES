@@ -41,12 +41,12 @@ le = joblib.load('label_encoder.pkl')
 # Load and preprocess data
 df = pd.read_csv('datacombo.csv')
 regular_features = [
-    'Age', 'Steep_axis_term', 'type', 'Residual_Astigmatism', 'ideal_tx_astig'
+    'Age', 'Steep_axis_term', 'type', 'Residual_Astigmatism', 'treated_astig'
 ]
 X_regular = df[regular_features].copy()
 X_regular['type'] = le.transform(X_regular['type'])
 y = df[['Arcuate_Sweep_Total']]
-X_monotonic = df[['ideal_tx_astig']]
+X_monotonic = df[['treated_astig']]
 
 # Scale the data
 X_regular_scaled = regular_scaler.transform(X_regular)
@@ -59,8 +59,8 @@ with torch.no_grad():
     predictions_scaled = model(x_regular_tensor, x_monotonic_tensor)
     predictions = target_scaler.inverse_transform(predictions_scaled.numpy())
     
-    # Apply the threshold rule: set prediction to 0.00 where ideal_tx_astig < -0.25
-    mask = (X_monotonic['ideal_tx_astig'] < 0.25).values
+    # Apply the threshold rule: set prediction to 0.00 where treated_astig < -0.25
+    mask = (X_monotonic['treated_astig'] < 0.25).values
     predictions[mask] = 0.00
 
 # 1. Predictions vs Actual Values
@@ -90,7 +90,7 @@ plt.close()
 
 # 3. Error vs Astigmatism
 plt.figure(figsize=(10, 6))
-plt.scatter(df['ideal_tx_astig'], np.abs(errors), alpha=0.5)
+plt.scatter(df['treated_astig'], np.abs(errors), alpha=0.5)
 plt.xlabel('Ideal Tx Astigmatism')
 plt.ylabel('Absolute Error (degrees)')
 plt.title('Prediction Error vs Astigmatism')
@@ -119,7 +119,7 @@ plt.close()
 plt.figure(figsize=(12, 8))
 error_pivot = pd.DataFrame({
     'Age_Group': pd.qcut(df['Age'], q=5, labels=['Very Young', 'Young', 'Middle', 'Old', 'Very Old']),
-    'Astig_Group': pd.qcut(df['ideal_tx_astig'], q=5, labels=['Very Low', 'Low', 'Medium', 'High', 'Very High']),
+    'Astig_Group': pd.qcut(df['treated_astig'], q=5, labels=['Very Low', 'Low', 'Medium', 'High', 'Very High']),
     'Error': np.abs(errors.flatten())
 }).pivot_table(values='Error', index='Age_Group', columns='Astig_Group', aggfunc='mean', observed=False)
 
@@ -155,7 +155,7 @@ plt.close()
 print("\nCorrelation with Absolute Error:")
 correlations = pd.DataFrame({
     'Age': df['Age'],
-    'Astigmatism': df['ideal_tx_astig'],
+    'Astigmatism': df['treated_astig'],
     'Abs_Error': np.abs(errors.flatten())
 }).corr()['Abs_Error'].drop('Abs_Error')
 print(correlations)
@@ -166,7 +166,7 @@ error_quartiles = pd.qcut(np.abs(errors.flatten()), q=4, labels=['Best', 'Good',
 quartile_analysis = pd.DataFrame({
     'Error_Quartile': error_quartiles,
     'Age': df['Age'],
-    'Astigmatism': df['ideal_tx_astig'],
+    'Astigmatism': df['treated_astig'],
     'Type': df['type']
 }).groupby('Error_Quartile').agg({
     'Age': ['mean', 'std'],
@@ -183,7 +183,7 @@ error_df = pd.DataFrame({
     'Abs_Error': np.abs(errors.flatten()),
     'Age': df['Age'],
     'Type': df['type'],
-    'Astigmatism': df['ideal_tx_astig']
+    'Astigmatism': df['treated_astig']
 })
 
 # Print performance analysis
@@ -211,19 +211,19 @@ for type_val in error_df['Type'].unique():
     print(f"R² Score: {type_r2:.4f}")
     print(f"Mean Absolute Error: {type_mae:.2f}°")
 
-# Analyze the dual effect of ideal_tx_astig
-print("\nAnalyzing ideal_tx_astig effect:")
+# Analyze the dual effect of treated_astig
+print("\nAnalyzing treated_astig effect:")
 print(f"Direct Monotonic Weight: {F.softplus(model.monotonic_weight).item():.4f}")
 print("\nNote: This is only the direct monotonic effect.")
 print("The total effect includes additional contributions through the regular path.")
 
 # We could analyze the total marginal effect
 with torch.no_grad():
-    # Create two versions of the input with small difference in ideal_tx_astig
+    # Create two versions of the input with small difference in treated_astig
     delta = 0.1
     x_regular_base = x_regular_tensor.clone()
     x_regular_delta = x_regular_tensor.clone()
-    x_regular_delta[:, 4] += delta  # Assuming ideal_tx_astig is the 5th feature
+    x_regular_delta[:, 4] += delta  # Assuming treated_astig is the 5th feature
     
     x_monotonic_base = x_monotonic_tensor.clone()
     x_monotonic_delta = x_monotonic_tensor.clone()
@@ -236,5 +236,5 @@ with torch.no_grad():
     # Calculate average marginal effect
     marginal_effect = ((pred_delta - pred_base) / delta).mean().item()
     
-print(f"\nAverage Marginal Effect of ideal_tx_astig: {marginal_effect:.4f}")
+print(f"\nAverage Marginal Effect of treated_astig: {marginal_effect:.4f}")
 print("(This represents the average total effect including both paths)") 

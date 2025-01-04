@@ -49,7 +49,7 @@ df = pd.read_csv('datacombo.csv')
 # Setting up features and target
 target = ['Arcuate_Sweep_Total']
 regular_features = [
-    'Age', 'Steep_axis_term', 'type', 'Residual_Astigmatism'
+    'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
 ]
 
 # Create DataFrames and encode categorical data
@@ -57,7 +57,7 @@ X_regular = df[regular_features].copy()
 le = LabelEncoder()
 X_regular['type'] = le.fit_transform(X_regular['type'])
 y = df[target]
-X_monotonic = df[['ideal_tx_astig']]
+X_monotonic = df[['treated_astig']]
 
 # Scale the features and target separately
 regular_scaler = StandardScaler()
