@@ -12,78 +12,110 @@ from torch.optim import AdamW
 
 
 # F.softplus(x) = log(1 + exp(x))
+# Initialize encoders and scalers
+le = LabelEncoder()
+other_scaler = StandardScaler()
+monotonic_scaler = StandardScaler()
+target_scaler = StandardScaler()
+
 
 class SimpleMonotonicNN(nn.Module):
-    def __init__(self, regular_input_dim):
+    def __init__(self, other_input_dim):
         super().__init__()
-        # Simple network for regular features
-        self.regular_path = nn.Sequential(
-            nn.Linear(regular_input_dim, 16),
+        self.unconstrained_path = nn.Sequential(
+            nn.Linear(other_input_dim, 24),
             nn.ReLU(),
-            nn.Linear(16, 1)
+            nn.Linear(24, 7),
+            nn.ReLU()
         )
         
-        # Initialize monotonic weight
-        self.monotonic_weight = nn.Parameter(torch.tensor([0.1]))
-        
-        # Initialize weights properly
-        for m in self.regular_path.modules():
+        # Initialize weights with smaller values
+        for m in self.unconstrained_path.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight, gain=0.1)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
     
-    def forward(self, x_regular, x_monotonic):
-        regular_out = self.regular_path(x_regular)
-        # Use softplus for smoother positive constraint
-        monotonic_out = F.softplus(self.monotonic_weight) * x_monotonic
-        return regular_out + monotonic_out
-    
-    def get_monotonic_coefficient(self):
-        """Returns the actual monotonic coefficient being used"""
-        return F.softplus(self.monotonic_weight).item()
+    def forward(self, x_other, x_monotonic):
+        # Get the weights from unconstrained path
+        weights = self.unconstrained_path(x_other)  # Shape: [batch_size, 7]
+        
+        # Element-wise multiplication with the monotonic features
+        weighted_features = weights * x_monotonic  # Shape: [batch_size, 7]
+        
+        # Sum up all 7 weighted features for each entry in the batch
+        # This reduces from [batch_size, 7] to [batch_size, 1]
+        return weighted_features.sum(dim=1, keepdim=True)
 
 # load dataset
 df = pd.read_csv('datacombo.csv')
 
 # Setting up features and target
 target = ['Arcuate_Sweep_Total']
-regular_features = [
+y = df[target]  # Define y from the target column
+x = df['treated_astig'].to_numpy()
+
+other_features = [
     'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
 ]
 
-# Create DataFrames and encode categorical data
-X_regular = df[regular_features].copy()
-le = LabelEncoder()
-X_regular['type'] = le.fit_transform(X_regular['type'])
-y = df[target]
-X_monotonic = df[['treated_astig']]
+# Handle NaN values
+wtw_median = df['WTW_IOLMaster'].median()
+meank_median = df['MeanK_IOLMaster'].median()
+df['WTW_IOLMaster'] = df['WTW_IOLMaster'].fillna(wtw_median)
+df['MeanK_IOLMaster'] = df['MeanK_IOLMaster'].fillna(meank_median)
 
-# Scale the features and target separately
-regular_scaler = StandardScaler()
-monotonic_scaler = StandardScaler()
-target_scaler = StandardScaler()
+# Create the monotonic feature transformations
+monotonic_features_dict = {
+    'constant': np.ones_like(x),
+    'linear': x,
+    'quadratic': x**2,
+    'cubic': x**3,
+    'quartic': x**4,
+    'logarithmic': np.log(x - x.min() + 1),
+    'exponential': np.exp(x)
+}
 
-X_regular_scaled = regular_scaler.fit_transform(X_regular)
-X_monotonic_scaled = monotonic_scaler.fit_transform(X_monotonic)
-y_scaled = target_scaler.fit_transform(y)
+# Convert to DataFrame and keep as DataFrame
+X_monotonic = pd.DataFrame(monotonic_features_dict)
+X_other = df[other_features].copy()
+X_other['type'] = le.fit_transform(X_other['type'])
 
-# Convert to tensors
-x_regular_tensor = torch.FloatTensor(X_regular_scaled)
-x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled)
-y_tensor = torch.FloatTensor(y_scaled)
+# Scale while maintaining DataFrame structure
+X_other_scaled = pd.DataFrame(
+    other_scaler.fit_transform(X_other),
+    columns=X_other.columns,
+    index=X_other.index
+)
+
+X_monotonic_scaled = pd.DataFrame(
+    monotonic_scaler.fit_transform(X_monotonic),
+    columns=X_monotonic.columns,
+    index=X_monotonic.index
+)
+
+y_scaled = pd.DataFrame(
+    target_scaler.fit_transform(y.values.reshape(-1, 1)),
+    columns=['target'],
+    index=y.index
+)
+
+# Convert to tensors only when needed for the model
+x_other_tensor = torch.FloatTensor(X_other_scaled.values)
+x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values)
+y_tensor = torch.FloatTensor(y_scaled.values)
 
 # Convert data to numpy for splitting
-X_regular_np = x_regular_tensor.numpy()
+X_other_np = x_other_tensor.numpy()
 X_monotonic_np = x_monotonic_tensor.numpy()
 y_np = y_tensor.numpy()
 
 # Set training parameters
-num_epochs = 500
+num_epochs = 1000
 
-# Set up K-fold cross validation
+# Set up K-fold cross validation with a different seed
 n_folds = 5
-kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)  # Changed to 42
 
 # Store metrics for each fold
 fold_metrics = {
@@ -91,19 +123,18 @@ fold_metrics = {
     'val_losses': [],
     'rmse_scores': [],
     'mae_scores': [],
-    'r2_scores': [],
-    'monotonic_weights': []
+    'r2_scores': []
 }
 
 print(f"\nStarting {n_folds}-fold cross-validation")
 
 # Cross-validation loop
-for fold, (train_idx, val_idx) in enumerate(kf.split(X_regular_np)):
+for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
     print(f"\nFold {fold + 1}/{n_folds}")
     
     # Split data for this fold
-    x_regular_train = torch.FloatTensor(X_regular_np[train_idx])
-    x_regular_val = torch.FloatTensor(X_regular_np[val_idx])
+    x_other_train = torch.FloatTensor(X_other_np[train_idx])
+    x_other_val = torch.FloatTensor(X_other_np[val_idx])
     x_monotonic_train = torch.FloatTensor(X_monotonic_np[train_idx])
     x_monotonic_val = torch.FloatTensor(X_monotonic_np[val_idx])
     y_train = torch.FloatTensor(y_np[train_idx])
@@ -111,7 +142,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_regular_np)):
 
     # Initialize model and optimizer for this fold
     model = SimpleMonotonicNN(
-        regular_input_dim=len(regular_features)
+        other_input_dim=len(other_features)
     )
     
     criterion = nn.MSELoss()
@@ -120,43 +151,32 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_regular_np)):
         lr=0.001,
         weight_decay=0.0001
     )
-    
-    scheduler = ReduceLROnPlateau(
-        optimizer,
-        mode='min',
-        factor=0.5,
-        patience=20,
-        min_lr=1e-6
-    )
 
     # Training loop
+    print("\nTraining model...")
     best_val_loss = float('inf')
     patience = 30
     patience_counter = 0
     
     for epoch in range(num_epochs):
+        # Training
         model.train()
-        outputs = model(x_regular_train, x_monotonic_train)
+        outputs = model(x_other_train, x_monotonic_train)
         loss = criterion(outputs, y_train)
         
         optimizer.zero_grad()
         loss.backward()
-        
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # gradient clipping to prevent exploding gradients
         optimizer.step()
         
         # Validation
         model.eval()
         with torch.no_grad():
-            val_outputs = model(x_regular_val, x_monotonic_val)
+            val_outputs = model(x_other_val, x_monotonic_val)
+            val_outputs_unscaled = target_scaler.inverse_transform(val_outputs.numpy())
+            val_outputs_unscaled = np.maximum(0.0, val_outputs_unscaled)  # Ensure non-negative
+            val_outputs = torch.FloatTensor(target_scaler.transform(val_outputs_unscaled))
             val_loss = criterion(val_outputs, y_val)
-            
-            scheduler.step(val_loss)
-            
-            if scheduler._last_lr[0] != optimizer.param_groups[0]['lr']:
-                print(f'Learning rate adjusted to: {scheduler._last_lr[0]:.6f}')
             
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -168,15 +188,13 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_regular_np)):
                 print(f'Early stopping at epoch {epoch+1}')
                 break
             
-            if (epoch + 1) % 50 == 0:  # Reduced printing frequency
-                print(f'Epoch [{epoch+1}/{num_epochs}], '
-                      f'Train Loss: {loss.item():.6f}, '
-                      f'Val Loss: {val_loss.item():.6f}')
+            if (epoch + 1) % 50 == 0:
+                print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.6f}, Val Loss: {val_loss.item():.6f}')
         
     # Final evaluation for this fold
     model.eval()
     with torch.no_grad():
-        final_val_outputs = model(x_regular_val, x_monotonic_val)
+        final_val_outputs = model(x_other_val, x_monotonic_val)
         final_val_loss = criterion(final_val_outputs, y_val)
         
         # Convert predictions back to original scale
@@ -194,17 +212,15 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_regular_np)):
         fold_metrics['rmse_scores'].append(rmse)
         fold_metrics['mae_scores'].append(mae)
         fold_metrics['r2_scores'].append(r2)
-        fold_metrics['monotonic_weights'].append(model.get_monotonic_coefficient())
         
         print(f'\nFold {fold + 1} Results:')
         print(f'RMSE: {rmse:.2f}')
         print(f'MAE: {mae:.2f}')
         print(f'R² Score: {r2:.4f}')
-        print(f'Monotonic Weight: {model.get_monotonic_coefficient():.4f}')
 
 # Print average metrics across all folds
 print('\nAverage Results Across All Folds:')
 print(f'RMSE: {np.mean(fold_metrics["rmse_scores"]):.2f} ± {np.std(fold_metrics["rmse_scores"]):.2f}')
 print(f'MAE: {np.mean(fold_metrics["mae_scores"]):.2f} ± {np.std(fold_metrics["mae_scores"]):.2f}')
 print(f'R² Score: {np.mean(fold_metrics["r2_scores"]):.4f} ± {np.std(fold_metrics["r2_scores"]):.4f}')
-print(f'Monotonic Weight: {np.mean(fold_metrics["monotonic_weights"]):.4f} ± {np.std(fold_metrics["monotonic_weights"]):.4f}')
+

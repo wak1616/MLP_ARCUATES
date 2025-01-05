@@ -1,107 +1,117 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import pandas as pd
-import joblib
 import numpy as np
+import joblib
 
-class SimpleMonotonicNN(nn.Module):
-    def __init__(self, regular_input_dim):
-        super().__init__()
-        self.regular_path = nn.Sequential(
-            nn.Linear(regular_input_dim, 16),
-            nn.ReLU(),
-            nn.Linear(16, 1)
-        )
-        
-        # Base monotonic weight
-        self.monotonic_weight = nn.Parameter(torch.tensor([0.1]))
+def predict_arcuate_sweep(age, steep_axis_term, type_val, meank_iolmaster, 
+                         treatment_astigmatism, wtw_iolmaster, treated_astig, 
+                         weights_path='model_weights.pth',
+                         components_path='model_components.joblib'):
     
-    def forward(self, x_regular, x_monotonic):
-        regular_out = self.regular_path(x_regular)
-        monotonic_out = F.softplus(self.monotonic_weight) * x_monotonic
-        return regular_out + monotonic_out
-
-def predict_arcuate_sweep(age, steep_axis_term, type_str, residual_astig, treated_astig):
-    """
-    Make predictions with the trained model.
+    # Load model weights safely
+    model_state_dict = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=True)
     
-    Parameters:
-    - age: patient age
-    - steep_axis_term: steep axis term
-    - type_str: type (string, either 'paired' [typemapped as 0] or 'single' [typemapped as 1])
-    - residual_astig: residual astigmatism
-    - treated_astig: ideal tx astigmatism
+    # Load other components
+    components = joblib.load(components_path)
     
-    Returns:
-    - predicted arcuate sweep
-    """
-    # Check if treated_astig is below threshold
-    if treated_astig < 0.25:
-        return 0.00
-        
-    # Load encoders and scalers
-    le = joblib.load('label_encoder.pkl')
-    regular_scaler = joblib.load('regular_scaler.pkl')
-    monotonic_scaler = joblib.load('monotonic_scaler.pkl')
-    target_scaler = joblib.load('target_scaler.pkl')
+    other_scaler = components['other_scaler']
+    monotonic_scaler = components['monotonic_scaler']
+    target_scaler = components['target_scaler']
+    label_encoder = components['label_encoder']
     
-    # Initialize and load model
-    model = SimpleMonotonicNN(regular_input_dim=5)
-    model.load_state_dict(torch.load('model_weights.pth', weights_only=True))
-    model.eval()
+    # Verify all components are loaded
+    if not all([model_state_dict, other_scaler, monotonic_scaler, target_scaler, label_encoder]):
+        raise ValueError("Missing components in the model checkpoint")
     
-    # Prepare input data
-    regular_features = ['Age', 'Steep_axis_term', 'type', 'Residual_Astigmatism', 'treated_astig']
-    type_encoded = le.transform([type_str])[0]
-    regular_data = pd.DataFrame([[age, steep_axis_term, type_encoded, residual_astig, treated_astig]], 
-                              columns=regular_features)
-    monotonic_data = pd.DataFrame([[treated_astig]], 
-                                columns=['treated_astig'])
+    # Create DataFrames for features
+    other_data = pd.DataFrame({
+        'Age': [age],
+        'Steep_axis_term': [steep_axis_term],
+        'type': [type_val],
+        'MeanK_IOLMaster': [meank_iolmaster],
+        'Treatment_astigmatism': [treatment_astigmatism],
+        'WTW_IOLMaster': [wtw_iolmaster]
+    })
     
-    # Scale inputs
-    regular_scaled = regular_scaler.transform(regular_data)
-    monotonic_scaled = monotonic_scaler.transform(monotonic_data)
+    # Create monotonic features
+    monotonic_features = {
+        'constant': np.ones(1),
+        'linear': np.array([treated_astig]),
+        'quadratic': np.array([treated_astig**2]),
+        'cubic': np.array([treated_astig**3]),
+        'quartic': np.array([treated_astig**4]),
+        'logarithmic': np.log(np.array([treated_astig - min(treated_astig, 0) + 1])),
+        'exponential': np.exp(np.array([treated_astig]))
+    }
+    monotonic_data = pd.DataFrame(monotonic_features)
+    
+    # Transform type using label encoder
+    other_data['type'] = label_encoder.transform([other_data['type'].iloc[0]])
+    
+    # Scale the features while maintaining DataFrame structure
+    other_scaled = pd.DataFrame(
+        other_scaler.transform(other_data),
+        columns=other_data.columns,
+        index=other_data.index
+    )
+    
+    monotonic_scaled = pd.DataFrame(
+        monotonic_scaler.transform(monotonic_data),
+        columns=monotonic_data.columns,
+        index=monotonic_data.index
+    )
     
     # Convert to tensors
-    x_regular = torch.FloatTensor(regular_scaled)
-    x_monotonic = torch.FloatTensor(monotonic_scaled)
+    x_other = torch.FloatTensor(other_scaled.values)
+    x_monotonic = torch.FloatTensor(monotonic_scaled.values)
+    
+    # Load model architecture and weights
+    model = SimpleMonotonicNN(len(other_data.columns))
+    model.load_state_dict(model_state_dict)
+    model.eval()
     
     # Make prediction
     with torch.no_grad():
-        prediction_scaled = model(x_regular, x_monotonic)
+        prediction_scaled = model(x_other, x_monotonic)
         prediction = target_scaler.inverse_transform(prediction_scaled.numpy())
-    
-    return float(prediction[0][0])
+        prediction = max(0.0, float(prediction.item()))  # Ensure non-negative
+        return prediction
 
+# Example usage
 if __name__ == "__main__":
-    # Example usage
-    print("\nExample predictions:")
-    examples = [
-        {
-            'age': 65,
-            'steep_axis_term': 0,
-            'type_str': 'paired',
-            'residual_astig': 0,
-            'treated_astig': 0.4
-        },
-        {
-            'age': 70,
-            'steep_axis_term': 0,
-            'type_str': 'single',
-            'residual_astig': 0,
-            'treated_astig': 0.4
-        }
-    ]
+    class SimpleMonotonicNN(torch.nn.Module):
+        def __init__(self, other_input_dim):
+            super().__init__()
+            self.unconstrained_path = torch.nn.Sequential(
+                torch.nn.Linear(other_input_dim, 24),
+                torch.nn.ReLU(),
+                torch.nn.Linear(24, 7),
+                torch.nn.ReLU()
+            )
+            
+            # Initialize weights with smaller values
+            for m in self.unconstrained_path.modules():
+                if isinstance(m, torch.nn.Linear):
+                    torch.nn.init.xavier_uniform_(m.weight, gain=0.1)
+                    if m.bias is not None:
+                        torch.nn.init.zeros_(m.bias)
+            
+        def forward(self, x_other, x_monotonic):
+            weights = self.unconstrained_path(x_other)
+            weighted_features = weights * x_monotonic
+            return weighted_features.sum(dim=1, keepdim=True)
     
-    for i, example in enumerate(examples, 1):
+    # Example prediction
+    try:
         prediction = predict_arcuate_sweep(
-            example['age'],
-            example['steep_axis_term'],
-            example['type_str'],
-            example['residual_astig'],
-            example['treated_astig']
+            age=65,
+            steep_axis_term=0.5,
+            type_val='paired',
+            meank_iolmaster=44.0,
+            treatment_astigmatism=1.0,
+            wtw_iolmaster=12.0,
+            treated_astig=1.0
         )
-        print(f"\nExample {i}:")
-        print(f"Inputs: {example}")
-        print(f"Total Arcuate Sweep: {prediction:.2f}°") 
+        print(f"Predicted Arcuate Sweep: {prediction:.2f}")
+    except Exception as e:
+        print(f"Error making prediction: {str(e)}") 

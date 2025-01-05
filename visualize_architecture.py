@@ -1,120 +1,103 @@
+import torch
 from graphviz import Digraph
-import os
 
-def create_network_visualization():
-    print("Starting visualization creation...")
-    
-    dot = Digraph(comment='SimpleMonotonicNN Architecture')
+def visualize_network():
+    dot = Digraph(comment='Monotonic Neural Network')
     dot.attr(rankdir='LR')
     
-    # Define color scheme
-    colors = {
-        'input': {'fillcolor': 'lightgrey', 'color': 'black'},
-        'dense': {'fillcolor': '#E6F3FF', 'color': '#2B7CE9'},  # Light blue
-        'activation': {'fillcolor': '#FFE6E6', 'color': '#D62728'},  # Light red
-        'arithmetic': {'fillcolor': '#E6FFE6', 'color': '#2CA02C'},  # Light green
-        'output': {'fillcolor': '#FFFDE6', 'color': '#FF7F0E'},  # Light yellow
-        'special': {'fillcolor': 'lightyellow', 'color': 'red'}  # For treated_astig
-    }
-    
-    print("Creating input layer...")
-    # Input Layer
+    # Add input nodes
     with dot.subgraph(name='cluster_0') as c:
-        c.attr(label='Input Layer')
-        c.attr(style='filled', color=colors['input']['color'])
-        c.node('i1', 'Age\n(1 unit)', style='filled', fillcolor=colors['input']['fillcolor'])
-        c.node('i2', 'Steep_axis_term\n(1 unit)', style='filled', fillcolor=colors['input']['fillcolor'])
-        c.node('i3', 'Type\n(1 unit)', style='filled', fillcolor=colors['input']['fillcolor'])
-        c.node('i4', 'Residual_Astig\n(1 unit)', style='filled', fillcolor=colors['input']['fillcolor'])
-        c.node('i5', 'treated_astig\n(1 unit)', style='filled', 
-               fillcolor=colors['special']['fillcolor'], color=colors['special']['color'])
+        c.attr(color='lightgrey', label='Input Features', penwidth='2.0')
+        c.node('x1', 'Age')
+        c.node('x2', 'Steep_axis_term')
+        c.node('x3', 'Type')
+        c.node('x4', 'MeanK_IOLMaster')
+        c.node('x5', 'Treatment_astigmatism')
+        c.node('x6', 'WTW_IOLMaster')
+        c.node('x7', 'treated_astig')
     
-    print("Creating paths...")
-    # Unconstrained Path
+    # Add monotonic transformation nodes
     with dot.subgraph(name='cluster_1') as c:
-        c.attr(label='Regular Path\n(Unconstrained Path)')
-        c.node('h1_dense', 'Dense Layer\n16 units', 
-               style='filled', fillcolor=colors['dense']['fillcolor'], color=colors['dense']['color'])
-        c.node('h1_relu', 'ReLU Activation\n16 units', 
-               style='filled', fillcolor=colors['activation']['fillcolor'], color=colors['activation']['color'])
-        c.node('h1_out', 'Dense Layer\n1 unit', 
-               style='filled', fillcolor=colors['dense']['fillcolor'], color=colors['dense']['color'])
+        c.attr(color='lightblue', label='Monotonic Transformations', penwidth='2.0')
+        c.node('m1', 'Constant')
+        c.node('m2', 'Linear')
+        c.node('m3', 'Quadratic')
+        c.node('m4', 'Cubic')
+        c.node('m5', 'Quartic')
+        c.node('m6', 'Logarithmic')
+        c.node('m7', 'Exponential')
     
-    # Constrained Path
-    with dot.subgraph(name='cluster_2') as c:
-        c.attr(label='Constrained, Monotonic Path')
-        c.node('weight', 'Learnable Weight\n(1 unit)', 
-               style='filled', fillcolor=colors['dense']['fillcolor'], color=colors['dense']['color'])
-        c.node('softplus', 'Softplus Activation\n(ensures positive weight)', 
-               style='filled', fillcolor=colors['activation']['fillcolor'], color=colors['activation']['color'])
-        c.node('mult', 'Multiplication\n(1 unit)', 
-               style='filled', fillcolor=colors['arithmetic']['fillcolor'], color=colors['arithmetic']['color'])
+    # Add hidden layer as single box
+    dot.node('hidden', 'Hidden Layer\n(24 units)\n[ReLU after]\n↓\n(7 units)\n[ReLU after]', 
+             shape='box', style='filled', fillcolor='lightgreen', penwidth='2.0')
     
-    print("Creating output layer...")
-    # Output Combination
-    dot.node('plus', 'Addition\n(1 unit)', 
-            style='filled', fillcolor=colors['arithmetic']['fillcolor'], color=colors['arithmetic']['color'])
-    dot.node('final', 'Neural Network Output\n(1 unit)', 
-            style='filled', fillcolor=colors['output']['fillcolor'], color=colors['output']['color'])
-    dot.node('pred', 'Final Prediction\n(recommend arcuate incision if\nastigmatism meets minimum threshold)\n(1 unit)', 
-            style='filled, dashed', fillcolor=colors['output']['fillcolor'], color=colors['output']['color'])
+    # Add weight nodes with clarified label
+    with dot.subgraph(name='cluster_3') as c:
+        c.attr(color='yellow', label='Weights\n(output from hidden layer)', penwidth='2.0')
+        for i in range(7):
+            c.node(f'w{i}', f'w{i}')
     
-    print("Adding connections...")
-    # Regular path connections
-    for i in range(1, 6):
-        dot.edge(f'i{i}', 'h1_dense', 'Dense (5→16)', color=colors['dense']['color'])
-    dot.edge('h1_dense', 'h1_relu', 'Linear→ReLU', color=colors['activation']['color'])
-    dot.edge('h1_relu', 'h1_out', 'Dense (16→1)', color=colors['dense']['color'])
-    dot.edge('h1_out', 'plus', 'Linear output', color=colors['dense']['color'])
+    # Add output node with non-negative constraint note
+    dot.node('out', 'Arcuate Sweep\n(max(0, prediction))', 
+             shape='doubleoctagon', penwidth='2.0')
     
-    # Monotonic path connections
-    dot.edge('weight', 'softplus', 'Activation', color=colors['activation']['color'])
-    dot.edge('softplus', 'mult', 'Weight', color=colors['arithmetic']['color'])
-    dot.edge('i5', 'mult', 'Input', color=colors['special']['color'])
-    dot.edge('mult', 'plus', 'Weighted input', color=colors['arithmetic']['color'])
+    # Add edges with colors for monotonic transformations
+    colors = ['red', 'blue', 'green', 'purple', 'orange', 'brown', 'darkgreen']
     
-    # Final connections
-    dot.edge('plus', 'final', 'Sum', color=colors['output']['color'])
-    dot.edge('final', 'pred', 'Apply threshold\n(0.25D)', color=colors['output']['color'])
+    # Connect input features to hidden layer
+    for i in range(6):
+        dot.edge(f'x{i+1}', 'hidden', penwidth='1.5')
     
-    # Add legend on the right
+    # Connect treated_astig to monotonic transformations
+    for i in range(7):
+        dot.edge('x7', f'm{i+1}', penwidth='1.5')
+    
+    # Connect hidden layer to weights
+    for i in range(7):
+        dot.edge('hidden', f'w{i}', penwidth='1.5')
+    
+    # Connect monotonic transformations to weights with colors
+    for i in range(7):
+        dot.edge(f'm{i+1}', f'w{i}', color=colors[i], penwidth='1.5')
+    
+    # Connect weights to output
+    for i in range(7):
+        dot.edge(f'w{i}', 'out', color=colors[i], penwidth='1.5')
+    
+    # Add comprehensive legend
     with dot.subgraph(name='cluster_legend') as c:
-        c.attr(label='Legend')
-        c.attr(style='filled')
-        c.attr(rank='same')  # Keep legend items at same level
-        c.attr(rankdir='TB')  # Top to bottom arrangement for legend items
+        c.attr(label='Legend', color='black', penwidth='2.0')
+        c.node('l1', 'Input Features', shape='box', color='lightgrey', 
+               style='filled', penwidth='2.0')
+        c.node('l2', 'Monotonic Transforms', shape='box', color='lightblue', 
+               style='filled', penwidth='2.0')
+        c.node('l3', 'Hidden Layer', shape='box', color='lightgreen', 
+               style='filled', penwidth='2.0')
+        c.node('l4', 'Weights\n(from hidden layer)', shape='box', color='yellow', 
+               style='filled', penwidth='2.0')
+        c.node('l5', 'Output', shape='doubleoctagon', penwidth='2.0')
         
-        # Position legend to the right
-        c.attr(labeljust='r')  # Right-justify the label
-        c.attr(labelloc='t')   # Place label at top
+        # Updated processing notes
+        c.node('note1', 'Processing Notes:\n' +
+               '1. ReLU activation after:\n' +
+               '   - First hidden layer (24 units)\n' +
+               '   - Second hidden layer (7 units)\n' +
+               '2. Features are standardized before input\n' +
+               '3. Hidden layer outputs weights for monotonic terms\n' +
+               '4. Monotonic terms are multiplied by their weights\n' +
+               '5. Final prediction ensures non-negative output', 
+               shape='note', penwidth='2.0')
         
-        # Add some invisible edges to force legend to the right
-        dot.node('invisible', style='invis')
-        dot.edge('final', 'invisible', style='invis')
-        dot.edge('invisible', 'note1', style='invis')
-        
-        c.node('note1', 'Color Coding:\n' +
-               '• Blue: Dense/Linear layers\n' +
-               '• Red: Activation functions\n' +
-               '• Green: Arithmetic operations\n' +
-               '• Yellow: Output layers\n' +
-               '• Grey: Input features\n' +
-               '• Red outline: Special input\n(treated_astig)', 
-               shape='note')
-        c.node('note2', 'All activations are ReLU\nexcept where noted', shape='note')
-        c.node('note3', 'Numbers in parentheses\nshow tensor dimensions', shape='note')
+        # Arrange legend vertically
+        c.edge('l1', 'l2', style='invis')
+        c.edge('l2', 'l3', style='invis')
+        c.edge('l3', 'l4', style='invis')
+        c.edge('l4', 'l5', style='invis')
+        c.edge('l5', 'note1', style='invis')
     
-    print("Saving visualization...")
-    output_file = 'network_architecture'
-    dot.render(output_file, format='png', cleanup=True)
-    
-    if os.path.exists(f'{output_file}.png'):
-        print(f"Visualization saved as {output_file}.png")
-        print(f"Full path: {os.path.abspath(f'{output_file}.png')}")
-    else:
-        print("Error: Visualization file was not created")
+    # Save the visualization
+    dot.render('network_architecture', format='png', cleanup=True)
 
-if __name__ == "__main__":
-    print("Script started")
-    create_network_visualization()
-    print("Script finished") 
+if __name__ == '__main__':
+    visualize_network()
+
