@@ -6,6 +6,28 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
+class SimpleMonotonicNN(torch.nn.Module):
+    def __init__(self, other_input_dim):
+        super().__init__()
+        self.unconstrained_path = torch.nn.Sequential(
+            torch.nn.Linear(other_input_dim, 24),
+            torch.nn.ReLU(),
+            torch.nn.Linear(24, 8),  # 8 features including logistic
+            torch.nn.ReLU()
+        )
+        
+        # Initialize weights
+        for m in self.unconstrained_path.modules():
+            if isinstance(m, torch.nn.Linear):
+                torch.nn.init.xavier_uniform_(m.weight, gain=0.1)
+                if m.bias is not None:
+                    torch.nn.init.zeros_(m.bias)
+    
+    def forward(self, x_other, x_monotonic):
+        weights = self.unconstrained_path(x_other)
+        weighted_features = weights * x_monotonic
+        return weighted_features.sum(dim=1, keepdim=True)
+
 def load_model_and_components(weights_path='model_weights.pth', components_path='model_components.joblib'):
     # Load model weights
     model_state_dict = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=True)
@@ -46,7 +68,8 @@ def analyze_model_performance():
         'cubic': x**3,
         'quartic': x**4,
         'logarithmic': np.log(x - x.min() + 1),
-        'exponential': np.exp(x)
+        'exponential': np.exp(x),
+        'logistic': 1 / (1 + np.exp(-(x-1)))
     }
     
     X_monotonic = pd.DataFrame(monotonic_features_dict)
@@ -126,28 +149,72 @@ def analyze_model_performance():
     
     return rmse, mae, r2
 
-if __name__ == "__main__":
-    # Add SimpleMonotonicNN class definition
-    class SimpleMonotonicNN(torch.nn.Module):
-        def __init__(self, other_input_dim):
-            super().__init__()
-            self.unconstrained_path = torch.nn.Sequential(
-                torch.nn.Linear(other_input_dim, 24),
-                torch.nn.ReLU(),
-                torch.nn.Linear(24, 7),
-                torch.nn.ReLU()
-            )
-            
-            # Initialize weights
-            for m in self.unconstrained_path.modules():
-                if isinstance(m, torch.nn.Linear):
-                    torch.nn.init.xavier_uniform_(m.weight, gain=0.1)
-                    if m.bias is not None:
-                        torch.nn.init.zeros_(m.bias)
-        
-        def forward(self, x_other, x_monotonic):
-            weights = self.unconstrained_path(x_other)
-            weighted_features = weights * x_monotonic
-            return weighted_features.sum(dim=1, keepdim=True)
+def analyze_feature_importance(model, data_sample):
+    """
+    Analyze the importance of each feature by examining weights and transformations
+    """
+    print("\nFeature Analysis:")
+    print("-----------------")
     
-    analyze_model_performance() 
+    # Feature names for reference
+    monotonic_features = ['Constant', 'Linear', 'Quadratic', 'Cubic', 
+                         'Quartic', 'Logarithmic', 'Exponential', 'Logistic']
+    
+    # Get weights from the model for this sample
+    with torch.no_grad():
+        weights = model.unconstrained_path(data_sample['x_other'])
+    
+    # Get monotonic features for this sample
+    x_monotonic = data_sample['x_monotonic']
+    
+    # Calculate contribution of each feature
+    contributions = weights * x_monotonic
+    contributions = contributions.numpy()[0]
+    
+    # Print analysis
+    print("\nFeature Contributions:")
+    for i, (feature, contribution) in enumerate(zip(monotonic_features, contributions)):
+        print(f"{feature:12} Weight: {weights[0][i]:8.4f}  "
+              f"Value: {x_monotonic[0][i]:8.4f}  "
+              f"Contribution: {contribution:8.4f}")
+    
+    # Calculate percentage contributions
+    total_contribution = abs(contributions).sum()
+    print("\nRelative Importance:")
+    for feature, contribution in zip(monotonic_features, contributions):
+        percentage = (abs(contribution) / total_contribution) * 100
+        print(f"{feature:12} {percentage:6.2f}%")
+
+if __name__ == "__main__":
+    # First run analyze_model_performance which creates the model
+    rmse, mae, r2 = analyze_model_performance()
+    
+    # Define other_features list
+    other_features = [
+        'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 
+        'Treatment_astigmatism', 'WTW_IOLMaster'
+    ]
+    
+    # Load model and components
+    model_state_dict = torch.load('model_weights.pth', map_location=torch.device('cpu'), weights_only=True)
+    components = joblib.load('model_components.joblib')
+    
+    # Initialize model
+    model = SimpleMonotonicNN(len(other_features))
+    model.load_state_dict(model_state_dict)
+    model.eval()
+    
+    # Get scalers from components
+    other_scaler = components['other_scaler']
+    monotonic_scaler = components['monotonic_scaler']
+    target_scaler = components['target_scaler']
+    
+    # Add feature analysis
+    print("\nAnalyzing sample prediction...")
+    sample_data = {
+        'x_other': torch.FloatTensor(other_scaler.transform([[65, 0.5, 0, 44.0, 1.0, 12.0]])),
+        'x_monotonic': torch.FloatTensor(monotonic_scaler.transform([
+            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]  # Include logistic
+        ]))
+    }
+    analyze_feature_importance(model, sample_data) 

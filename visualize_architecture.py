@@ -1,4 +1,3 @@
-import torch
 from graphviz import Digraph
 
 def visualize_network():
@@ -18,7 +17,7 @@ def visualize_network():
     
     # Add monotonic transformation nodes
     with dot.subgraph(name='cluster_1') as c:
-        c.attr(color='lightblue', label='Monotonic Transformations', penwidth='2.0')
+        c.attr(color='lightblue', label='Monotonic Transformations')
         c.node('m1', 'Constant')
         c.node('m2', 'Linear')
         c.node('m3', 'Quadratic')
@@ -26,6 +25,7 @@ def visualize_network():
         c.node('m5', 'Quartic')
         c.node('m6', 'Logarithmic')
         c.node('m7', 'Exponential')
+        c.node('m8', 'Logistic')
     
     # Add hidden layer as single box
     dot.node('hidden', 'Hidden Layer\n(24 units)\n[ReLU after]\n↓\n(7 units)\n[ReLU after]', 
@@ -49,7 +49,7 @@ def visualize_network():
         dot.edge(f'x{i+1}', 'hidden', penwidth='1.5')
     
     # Connect treated_astig to monotonic transformations
-    for i in range(7):
+    for i in range(8):
         dot.edge('x7', f'm{i+1}', penwidth='1.5')
     
     # Connect hidden layer to weights

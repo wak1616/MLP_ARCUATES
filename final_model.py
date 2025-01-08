@@ -18,7 +18,7 @@ class SimpleMonotonicNN(nn.Module):
         self.unconstrained_path = nn.Sequential(
             nn.Linear(other_input_dim, 24),
             nn.ReLU(),
-            nn.Linear(24, 7),
+            nn.Linear(24, 8),
             nn.ReLU()
         )
         
@@ -61,7 +61,8 @@ monotonic_features_dict = {
     'cubic': x**3,
     'quartic': x**4,
     'logarithmic': np.log(x - x.min() + 1),
-    'exponential': np.exp(x)
+    'exponential': np.exp(x),
+    'logistic': 1 / (1 + np.exp(-(x-1)))
 }
 
 # Convert to DataFrame and keep as DataFrame

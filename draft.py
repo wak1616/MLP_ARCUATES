@@ -25,38 +25,38 @@ class SimpleMonotonicNN(nn.Module):
         self.unconstrained_path = nn.Sequential(
             nn.Linear(other_input_dim, 24),
             nn.ReLU(),
-            nn.Linear(24, 7),
+            nn.Linear(24, 8),
             nn.ReLU()
         )
         
-        # Initialize weights with smaller values
+        # Initialize weights
         for m in self.unconstrained_path.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight, gain=0.1)
+                torch.nn.init.xavier_uniform_(m.weight, gain=0.1)
                 if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+                    torch.nn.init.zeros_(m.bias)
     
     def forward(self, x_other, x_monotonic):
         # Get the weights from unconstrained path
-        weights = self.unconstrained_path(x_other)  # Shape: [batch_size, 7]
+        weights = self.unconstrained_path(x_other)  # Shape: [batch_size, 8]
         
         # Element-wise multiplication with the monotonic features
-        weighted_features = weights * x_monotonic  # Shape: [batch_size, 7]
+        weighted_features = weights * x_monotonic  # Shape: [batch_size, 8]
         
-        # Sum up all 7 weighted features for each entry in the batch
-        # This reduces from [batch_size, 7] to [batch_size, 1]
+        # Sum up all 8 weighted features for each entry in the batch
+        # This reduces from [batch_size, 8] to [batch_size, 1]
         return weighted_features.sum(dim=1, keepdim=True)
 
 # load dataset
 df = pd.read_csv('datacombo.csv')
 
 # Setting up features and target
-target = ['Arcuate_Sweep_Total']
+target = ['Arcuate_Sweep_Half']
 y = df[target]  # Define y from the target column
-x = df['treated_astig'].to_numpy()
+x = df['treated_astig_half'].to_numpy()
 
 other_features = [
-    'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
+    'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 'Treatment_astigmatism_half', 'WTW_IOLMaster'
 ]
 
 # Handle NaN values
@@ -73,7 +73,8 @@ monotonic_features_dict = {
     'cubic': x**3,
     'quartic': x**4,
     'logarithmic': np.log(x - x.min() + 1),
-    'exponential': np.exp(x)
+    'exponential': np.exp(x),
+    'logistic': 1 / (1 + np.exp(-(x-1)))
 }
 
 # Convert to DataFrame and keep as DataFrame

@@ -34,16 +34,16 @@ def predict_arcuate_sweep(age, steep_axis_term, type_val, meank_iolmaster,
     })
     
     # Create monotonic features
-    monotonic_features = {
-        'constant': np.ones(1),
-        'linear': np.array([treated_astig]),
-        'quadratic': np.array([treated_astig**2]),
-        'cubic': np.array([treated_astig**3]),
-        'quartic': np.array([treated_astig**4]),
-        'logarithmic': np.log(np.array([treated_astig - min(treated_astig, 0) + 1])),
-        'exponential': np.exp(np.array([treated_astig]))
-    }
-    monotonic_data = pd.DataFrame(monotonic_features)
+    x_monotonic = np.array([[
+        1.0,  # constant
+        treated_astig,  # linear
+        treated_astig**2,  # quadratic
+        treated_astig**3,  # cubic
+        treated_astig**4,  # quartic
+        np.log(treated_astig - min(treated_astig, 0) + 1),  # logarithmic
+        np.exp(treated_astig),  # exponential
+        1 / (1 + np.exp(-(treated_astig-1)))  # logistic
+    ]])
     
     # Transform type using label encoder
     other_data['type'] = label_encoder.transform([other_data['type'].iloc[0]])
@@ -56,9 +56,9 @@ def predict_arcuate_sweep(age, steep_axis_term, type_val, meank_iolmaster,
     )
     
     monotonic_scaled = pd.DataFrame(
-        monotonic_scaler.transform(monotonic_data),
-        columns=monotonic_data.columns,
-        index=monotonic_data.index
+        monotonic_scaler.transform(x_monotonic),
+        columns=['constant', 'linear', 'quadratic', 'cubic', 'quartic', 'logarithmic', 'exponential', 'logistic'],
+        index=[0]
     )
     
     # Convert to tensors
@@ -103,14 +103,19 @@ if __name__ == "__main__":
     
     # Example prediction
     try:
+        # Get treated_astig value first
+        treated_astig_val = 0.5  # default value
+        if 'treated_astig' in locals() or 'treated_astig' in globals():
+            treated_astig_val = treated_astig
+            
         prediction = predict_arcuate_sweep(
             age=65,
             steep_axis_term=0.5,
             type_val='paired',
             meank_iolmaster=44.0,
-            treatment_astigmatism=1.0,
+            treatment_astigmatism=treated_astig_val,  # automatically matches treated_astig
             wtw_iolmaster=12.0,
-            treated_astig=1.0
+            treated_astig=treated_astig_val
         )
         print(f"Predicted Arcuate Sweep: {prediction:.2f}")
     except Exception as e:
