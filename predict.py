@@ -13,7 +13,6 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
     
     # Load other components
     components = joblib.load(components_path)
-    print(components)
     other_scaler = components['other_scaler']
     monotonic_scaler = components['monotonic_scaler']
     target_scaler = components['target_scaler']
@@ -32,17 +31,18 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
         'WTW_IOLMaster': [wtw_iolmaster]
     })
     
-    # Create monotonic features
-    x_monotonic = np.array([[
-            1.0,  # constant
-            treated_astig_half,  # lin  ear
-        1 / (1 + np.exp(-(treated_astig_half+1))),  # logistic1
-        1 / (1 + np.exp(-(treated_astig_half+0.5))),  # logistic2
-        1 / (1 + np.exp(-treated_astig_half)),  # logistic3
-        np.log(treated_astig_half - min(treated_astig_half, 0) + 1),  # logarithmic
-        1 / (1 + np.exp(-(treated_astig_half-0.5))),  # logistic4
-        1 / (1 + np.exp(-(treated_astig_half-1)))  # logistic5
-    ]])
+    # Create monotonic features using DataFrame
+    monotonic_features_dict = {
+        'constant': [1.0],
+        'linear': [treated_astig_half],
+        'logistic1': [1 / (1 + np.exp(-(treated_astig_half+1)))],
+        'logistic2': [1 / (1 + np.exp(-(treated_astig_half+0.5)))],
+        'logistic3': [1 / (1 + np.exp(-treated_astig_half))],
+        'logarithmic': [np.log(treated_astig_half - min(treated_astig_half, 0) + 1)],
+        'logistic4': [1 / (1 + np.exp(-(treated_astig_half-0.5)))],
+        'logistic5': [1 / (1 + np.exp(-(treated_astig_half-1)))]
+    }
+    x_monotonic = pd.DataFrame(monotonic_features_dict)
     
     # Transform type using label encoder
     # other_data['type'] = label_encoder.transform([other_data['type'].iloc[0]])
@@ -56,9 +56,8 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
     
     monotonic_scaled = pd.DataFrame(
         monotonic_scaler.transform(x_monotonic),
-        columns=['constant', 'linear', 'logistic1', 'logistic2', 'logistic3', 
-                'logarithmic', 'logistic4', 'logistic5'],
-        index=[0]
+        columns=x_monotonic.columns,
+        index=x_monotonic.index
     )
     
     # Convert to tensors
@@ -107,11 +106,11 @@ if __name__ == "__main__":
         treated_astig_val = 0.5  # default value
         prediction = predict_arcuate_sweep(
             age=65,
-            steep_axis_term=0.5,
-            meank_iolmaster=44.0,
-            treatment_astigmatism_half=treated_astig_val,  # automatically matches treated_astig
+            steep_axis_term=-1,
+            meank_iolmaster=44.5,
+            treatment_astigmatism_half=treated_astig_val/2,  # automatically matches treated_astig
             wtw_iolmaster=12.0,
-            treated_astig_half=treated_astig_val
+            treated_astig_half=treated_astig_val/2
         )
         print(f"Predicted Arcuate Sweep: {prediction:.2f}")
     except Exception as e:

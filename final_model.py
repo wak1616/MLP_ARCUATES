@@ -37,6 +37,10 @@ class SimpleMonotonicNN(nn.Module):
 # Load dataset
 df = pd.read_csv('datacombo.csv')
 
+# Filter out 'single' type entries
+df = df[df['type'] != 'single']
+
+print(f"\nTotal number of entries in dataset: {len(df)}")
 # Setting up features and target
 target = ['Arcuate_Sweep_Half']
 y = df[target]

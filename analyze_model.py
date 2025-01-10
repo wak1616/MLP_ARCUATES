@@ -43,6 +43,9 @@ def analyze_model_performance():
     
     # Load original data
     df = pd.read_csv('datacombo.csv')
+
+    # Filter out 'single' type entries
+    df = df[df['type'] != 'single']
     
     # Prepare features as in final_model.py
     target = ['Arcuate_Sweep_Half']
