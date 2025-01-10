@@ -38,13 +38,12 @@ class SimpleMonotonicNN(nn.Module):
 df = pd.read_csv('datacombo.csv')
 
 # Setting up features and target
-target = ['Arcuate_Sweep_Total']
+target = ['Arcuate_Sweep_Half']
 y = df[target]
-x = df['treated_astig'].to_numpy()
+x = df['treated_astig_half'].to_numpy()
 
 other_features = [
-    'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 
-    'Treatment_astigmatism', 'WTW_IOLMaster'
+    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism_half', 'WTW_IOLMaster'
 ]
 
 # Handle NaN values
@@ -57,18 +56,18 @@ df['MeanK_IOLMaster'] = df['MeanK_IOLMaster'].fillna(meank_median)
 monotonic_features_dict = {
     'constant': np.ones_like(x),
     'linear': x,
-    'quadratic': x**2,
-    'cubic': x**3,
-    'quartic': x**4,
+    'logistic1': 1 / (1 + np.exp(-(x+1))),
+    'logistic2': 1 / (1 + np.exp(-(x+0.5))),
+    'logistic3': 1 / (1 + np.exp(-x)),
     'logarithmic': np.log(x - x.min() + 1),
-    'exponential': np.exp(x),
-    'logistic': 1 / (1 + np.exp(-(x-1)))
+    'logistic4': 1 / (1 + np.exp(-(x-0.5))),
+    'logistic5': 1 / (1 + np.exp(-(x-1)))
 }
 
 # Convert to DataFrame and keep as DataFrame
 X_monotonic = pd.DataFrame(monotonic_features_dict)
 X_other = df[other_features].copy()
-X_other['type'] = le.fit_transform(X_other['type'])
+# X_other['type'] = le.fit_transform(X_other['type'])
 
 # Scale while maintaining DataFrame structure
 X_other_scaled = pd.DataFrame(

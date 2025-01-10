@@ -45,13 +45,12 @@ def analyze_model_performance():
     df = pd.read_csv('datacombo.csv')
     
     # Prepare features as in final_model.py
-    target = ['Arcuate_Sweep_Total']
+    target = ['Arcuate_Sweep_Half']
     y = df[target]
-    x = df['treated_astig'].to_numpy()
+    x = df['treated_astig_half'].to_numpy()
     
     other_features = [
-        'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 
-        'Treatment_astigmatism', 'WTW_IOLMaster'
+        'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism_half', 'WTW_IOLMaster'
     ]
     
     # Handle NaN values
@@ -64,12 +63,12 @@ def analyze_model_performance():
     monotonic_features_dict = {
         'constant': np.ones_like(x),
         'linear': x,
-        'quadratic': x**2,
-        'cubic': x**3,
-        'quartic': x**4,
+        'logistic1': 1 / (1 + np.exp(-(x+1))),
+        'logistic2': 1 / (1 + np.exp(-(x+0.5))),
+        'logistic3': 1 / (1 + np.exp(-x)),
         'logarithmic': np.log(x - x.min() + 1),
-        'exponential': np.exp(x),
-        'logistic': 1 / (1 + np.exp(-(x-1)))
+        'logistic4': 1 / (1 + np.exp(-(x-0.5))),
+        'logistic5': 1 / (1 + np.exp(-(x-1)))
     }
     
     X_monotonic = pd.DataFrame(monotonic_features_dict)
@@ -82,7 +81,7 @@ def analyze_model_performance():
     label_encoder = components['label_encoder']
     
     # Transform and scale features
-    X_other['type'] = label_encoder.transform(X_other['type'])
+    # X_other['type'] = label_encoder.transform(X_other['type'])
     X_other_scaled = pd.DataFrame(
         other_scaler.transform(X_other),
         columns=X_other.columns
@@ -156,9 +155,9 @@ def analyze_feature_importance(model, data_sample):
     print("\nFeature Analysis:")
     print("-----------------")
     
-    # Feature names for reference
-    monotonic_features = ['Constant', 'Linear', 'Quadratic', 'Cubic', 
-                         'Quartic', 'Logarithmic', 'Exponential', 'Logistic']
+    # Feature names for reference - updated to match monotonic_features_dict
+    monotonic_features = ['Constant', 'Linear', 'Logistic1', 'Logistic2', 
+                         'Logistic3', 'Logarithmic', 'Logistic4', 'Logistic5']
     
     # Get weights from the model for this sample
     with torch.no_grad():
@@ -185,14 +184,88 @@ def analyze_feature_importance(model, data_sample):
         percentage = (abs(contribution) / total_contribution) * 100
         print(f"{feature:12} {percentage:6.2f}%")
 
+def plot_treated_astig_vs_sweep():
+    """
+    Plot treated_astig against Arcuate_Sweep
+    """
+    # Load data
+    df = pd.read_csv('datacombo.csv')
+    
+    # Create plot
+    plt.figure(figsize=(10, 6))
+    plt.scatter(df['treated_astig_half'], df['Arcuate_Sweep_Half'], alpha=0.5)
+    plt.xlabel('Treated Astigmatism')
+    plt.ylabel('Arcuate Sweep')
+    plt.title('Treated Astigmatism vs Arcuate Sweep')
+    
+    # Add trend line
+    z = np.polyfit(df['treated_astig_half'], df['Arcuate_Sweep_Half'], 1)
+    p = np.poly1d(z)
+    plt.plot(df['treated_astig_half'], p(df['treated_astig_half']), "r--", alpha=0.8)
+    
+    # Set both axes to start at 0
+    plt.xlim(left=0)
+    plt.ylim(bottom=0)
+    
+    # Add grid
+    plt.grid(True, alpha=0.3)
+    
+    # Save plot
+    plt.savefig('treated_astig_vs_sweep.png')
+    plt.close()
+
+def plot_feature_importance(model, data_sample):
+    """
+    Create a bar plot showing the relative importance of monotonic features
+    """
+    # Feature names
+    monotonic_features = ['Constant', 'Linear', 'Logistic1', 'Logistic2', 
+                         'Logistic3', 'Logarithmic', 'Logistic4', 'Logistic5']
+    
+    # Get weights and contributions
+    with torch.no_grad():
+        weights = model.unconstrained_path(data_sample['x_other'])
+    x_monotonic = data_sample['x_monotonic']
+    contributions = weights * x_monotonic
+    contributions = contributions.numpy()[0]
+    
+    # Calculate absolute percentage contributions
+    total_contribution = abs(contributions).sum()
+    percentages = [(abs(contribution) / total_contribution) * 100 for contribution in contributions]
+    
+    # Create bar plot
+    plt.figure(figsize=(12, 6))
+    bars = plt.bar(monotonic_features, percentages)
+    
+    # Customize plot
+    plt.title('Relative Importance of Monotonic Features')
+    plt.xlabel('Features')
+    plt.ylabel('Relative Importance (%)')
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add percentage labels on top of bars
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.1f}%',
+                ha='center', va='bottom')
+    
+    # Add grid and adjust layout
+    plt.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    
+    # Save plot
+    plt.savefig('feature_importance.png')
+    plt.close()
+
 if __name__ == "__main__":
     # First run analyze_model_performance which creates the model
     rmse, mae, r2 = analyze_model_performance()
     
     # Define other_features list
     other_features = [
-        'Age', 'Steep_axis_term', 'type', 'MeanK_IOLMaster', 
-        'Treatment_astigmatism', 'WTW_IOLMaster'
+        'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 
+        'Treatment_astigmatism_half', 'WTW_IOLMaster'
     ]
     
     # Load model and components
@@ -212,9 +285,15 @@ if __name__ == "__main__":
     # Add feature analysis
     print("\nAnalyzing sample prediction...")
     sample_data = {
-        'x_other': torch.FloatTensor(other_scaler.transform([[65, 0.5, 0, 44.0, 1.0, 12.0]])),
+        'x_other': torch.FloatTensor(other_scaler.transform([[65, 0.5, 44.0, 1.0, 12.0]])),
         'x_monotonic': torch.FloatTensor(monotonic_scaler.transform([
             [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]  # Include logistic
         ]))
     }
     analyze_feature_importance(model, sample_data) 
+    
+    # Create treated_astig vs sweep plot
+    plot_treated_astig_vs_sweep()
+    
+    # Create feature importance plot
+    plot_feature_importance(model, sample_data)
