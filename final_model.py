@@ -5,6 +5,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 import numpy as np
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import joblib
+from torch.utils.data import TensorDataset, DataLoader
 
 # Initialize encoders and scalers
 le = LabelEncoder()
@@ -97,6 +98,11 @@ x_other_tensor = torch.FloatTensor(X_other_scaled.values)
 x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values)
 y_tensor = torch.FloatTensor(y_scaled.values)
 
+# Create dataset and dataloader
+batch_size = 32  # You can adjust this value
+dataset = TensorDataset(x_other_tensor, x_monotonic_tensor, y_tensor)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
 # Initialize model
 model = SimpleMonotonicNN(len(other_features))
 criterion = nn.MSELoss()
@@ -111,17 +117,26 @@ patience_counter = 0
 
 for epoch in range(num_epochs):
     model.train()
-    outputs = model(x_other_tensor, x_monotonic_tensor)
-    loss = criterion(outputs, y_tensor)
+    epoch_loss = 0
+    batch_count = 0
     
-    optimizer.zero_grad()
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-    optimizer.step()
+    for batch_other, batch_monotonic, batch_y in dataloader:
+        outputs = model(batch_other, batch_monotonic)
+        loss = criterion(outputs, batch_y)
+        
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+        
+        epoch_loss += loss.item()
+        batch_count += 1
+    
+    avg_epoch_loss = epoch_loss / batch_count
     
     # Early stopping check
-    if loss < best_loss:
-        best_loss = loss
+    if avg_epoch_loss < best_loss:
+        best_loss = avg_epoch_loss
         patience_counter = 0
         # Save model state separately from other components
         torch.save(model.state_dict(), 'model_weights.pth')
@@ -140,7 +155,7 @@ for epoch in range(num_epochs):
         break
         
     if (epoch + 1) % 50 == 0:
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.6f}')
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {avg_epoch_loss:.6f}')
 
 # Final evaluation
 print("\nFINAL MODEL PERFORMANCE:")
