@@ -48,12 +48,12 @@ def analyze_model_performance():
     df = df[df['type'] != 'single']
     
     # Prepare features as in final_model.py
-    target = ['Arcuate_Sweep_Half']
+    target = ['Arcuate_Sweep']
     y = df[target]
-    x = df['treated_astig_half'].to_numpy()
+    x = df['treated_astig'].to_numpy()
     
     other_features = [
-        'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism_half', 'WTW_IOLMaster'
+        'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
     ]
     
     # Handle NaN values
@@ -81,7 +81,7 @@ def analyze_model_performance():
     other_scaler = components['other_scaler']
     monotonic_scaler = components['monotonic_scaler']
     target_scaler = components['target_scaler']
-    label_encoder = components['label_encoder']
+    # label_encoder = components['label_encoder']
     
     # Transform and scale features
     # X_other['type'] = label_encoder.transform(X_other['type'])
@@ -196,15 +196,15 @@ def plot_treated_astig_vs_sweep():
     
     # Create plot
     plt.figure(figsize=(10, 6))
-    plt.scatter(df['treated_astig_half'], df['Arcuate_Sweep_Half'], alpha=0.5)
+    plt.scatter(df['treated_astig'], df['Arcuate_Sweep'], alpha=0.5)
     plt.xlabel('Treated Astigmatism')
     plt.ylabel('Arcuate Sweep')
     plt.title('Treated Astigmatism vs Arcuate Sweep')
     
     # Add trend line
-    z = np.polyfit(df['treated_astig_half'], df['Arcuate_Sweep_Half'], 1)
+    z = np.polyfit(df['treated_astig'], df['Arcuate_Sweep'], 1)
     p = np.poly1d(z)
-    plt.plot(df['treated_astig_half'], p(df['treated_astig_half']), "r--", alpha=0.8)
+    plt.plot(df['treated_astig'], p(df['treated_astig']), "r--", alpha=0.8)
     
     # Set both axes to start at 0
     plt.xlim(left=0)
@@ -268,7 +268,7 @@ if __name__ == "__main__":
     # Define other_features list
     other_features = [
         'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 
-        'Treatment_astigmatism_half', 'WTW_IOLMaster'
+        'Treatment_astigmatism', 'WTW_IOLMaster'
     ]
     
     # Load model and components

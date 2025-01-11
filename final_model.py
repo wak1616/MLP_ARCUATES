@@ -42,12 +42,12 @@ df = df[df['type'] != 'single']
 
 print(f"\nTotal number of entries in dataset: {len(df)}")
 # Setting up features and target
-target = ['Arcuate_Sweep_Half']
+target = ['Arcuate_Sweep']
 y = df[target]
-x = df['treated_astig_half'].to_numpy()
+x = df['treated_astig'].to_numpy()
 
 other_features = [
-    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism_half', 'WTW_IOLMaster'
+    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
 ]
 
 # Handle NaN values

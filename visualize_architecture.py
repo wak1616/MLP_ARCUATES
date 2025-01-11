@@ -18,14 +18,14 @@ def visualize_network():
     # Add monotonic transformation nodes
     with dot.subgraph(name='cluster_1') as c:
         c.attr(color='lightblue', label='Monotonic Transformations')
-        c.node('m1', 'Constant')
-        c.node('m2', 'Linear')
-        c.node('m3', 'Quadratic')
-        c.node('m4', 'Cubic')
-        c.node('m5', 'Quartic')
-        c.node('m6', 'Logarithmic')
-        c.node('m7', 'Exponential')
-        c.node('m8', 'Logistic')
+        c.node('m1', 'constant')
+        c.node('m2', 'linear')
+        c.node('m3', 'logistic1')
+        c.node('m4', 'logistic2')
+        c.node('m5', 'logistic3')
+        c.node('m6', 'logarithmic')
+        c.node('m7', 'logistic4')
+        c.node('m8', 'logistic5')
     
     # Add hidden layer as single box
     dot.node('hidden', 'Hidden Layer\n(24 units)\n[ReLU after]\n↓\n(7 units)\n[ReLU after]', 

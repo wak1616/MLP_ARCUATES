@@ -4,7 +4,7 @@ import numpy as np
 import joblib
 
 def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster, 
-                         treatment_astigmatism_half, wtw_iolmaster, treated_astig_half, 
+                         treatment_astigmatism, wtw_iolmaster, treated_astig, 
                          weights_path='model_weights.pth',
                          components_path='model_components.joblib'):
     
@@ -27,20 +27,20 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
         'Age': [age],
         'Steep_axis_term': [steep_axis_term],
         'MeanK_IOLMaster': [meank_iolmaster],
-        'Treatment_astigmatism_half': [treatment_astigmatism_half],
+        'Treatment_astigmatism': [treatment_astigmatism],
         'WTW_IOLMaster': [wtw_iolmaster]
     })
     
     # Create monotonic features using DataFrame
     monotonic_features_dict = {
         'constant': [1.0],
-        'linear': [treated_astig_half],
-        'logistic1': [1 / (1 + np.exp(-(treated_astig_half+1)))],
-        'logistic2': [1 / (1 + np.exp(-(treated_astig_half+0.5)))],
-        'logistic3': [1 / (1 + np.exp(-treated_astig_half))],
-        'logarithmic': [np.log(treated_astig_half - min(treated_astig_half, 0) + 1)],
-        'logistic4': [1 / (1 + np.exp(-(treated_astig_half-0.5)))],
-        'logistic5': [1 / (1 + np.exp(-(treated_astig_half-1)))]
+        'linear': [treated_astig],
+        'logistic1': [1 / (1 + np.exp(-(treated_astig+1)))],
+        'logistic2': [1 / (1 + np.exp(-(treated_astig+0.5)))],
+        'logistic3': [1 / (1 + np.exp(-treated_astig))],
+        'logarithmic': [np.log(treated_astig - min(treated_astig, 0) + 1)],
+        'logistic4': [1 / (1 + np.exp(-(treated_astig-0.5)))],
+        'logistic5': [1 / (1 + np.exp(-(treated_astig-1)))]
     }
     x_monotonic = pd.DataFrame(monotonic_features_dict)
     
@@ -103,14 +103,14 @@ if __name__ == "__main__":
     # Example prediction
     try:
         # Get treated_astig value first
-        treated_astig_val = 0.5  # default value
+        treated_astig_total = 0.4  # default value
         prediction = predict_arcuate_sweep(
             age=65,
-            steep_axis_term=-1,
-            meank_iolmaster=44.5,
-            treatment_astigmatism_half=treated_astig_val/2,  # automatically matches treated_astig
+            steep_axis_term=1,
+            meank_iolmaster= 45,
+            treatment_astigmatism=treated_astig_total/2,  # automatically matches treated_astig
             wtw_iolmaster=12.0,
-            treated_astig_half=treated_astig_val/2
+            treated_astig=treated_astig_total/2
         )
         print(f"Predicted Arcuate Sweep: {prediction:.2f}")
     except Exception as e:

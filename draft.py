@@ -3,11 +3,9 @@ import torch
 import torch.nn as nn
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import KFold
-import torch.nn.init as init
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import numpy as np
 import torch.nn.functional as F
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.optim import AdamW
 
 
@@ -54,12 +52,12 @@ df = pd.read_csv('datacombo.csv')
 df = df[df['type'] != 'single']
 
 # Setting up features and target
-target = ['Arcuate_Sweep_Half']
+target = ['Arcuate_Sweep']
 y = df[target]  # Define y from the target column
-x = df['treated_astig_half'].to_numpy()
+x = df['treated_astig'].to_numpy()  # this value will pertain to a specific arcuate.
 
 other_features = [
-    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism_half', 'WTW_IOLMaster'
+    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
 ]
 
 # Handle NaN values
@@ -162,15 +160,19 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
     patience = 30
     patience_counter = 0
     
+    batch_size = 32
+    n_batches = len(x_other_train) // batch_size + (1 if len(x_other_train) % batch_size != 0 else 0)
+
     for epoch in range(num_epochs):
         # Training
         model.train()
         outputs = model(x_other_train, x_monotonic_train)
         loss = criterion(outputs, y_train)
+        epoch_loss = loss.item()
         
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # gradient clipping to prevent exploding gradients
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         
         # Validation
@@ -193,7 +195,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
                 break
             
             if (epoch + 1) % 50 == 0:
-                print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.6f}, Val Loss: {val_loss.item():.6f}')
+                print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.6f}, Val Loss: {val_loss.item():.6f}')
         
     # Final evaluation for this fold
     model.eval()
@@ -211,7 +213,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
         r2 = r2_score(y_val_original, final_predictions)
         
         # Store metrics for this fold
-        fold_metrics['train_losses'].append(loss.item())
+        fold_metrics['train_losses'].append(epoch_loss)
         fold_metrics['val_losses'].append(final_val_loss.item())
         fold_metrics['rmse_scores'].append(rmse)
         fold_metrics['mae_scores'].append(mae)
