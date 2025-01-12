@@ -20,30 +20,19 @@ target_scaler = StandardScaler()
 class SimpleMonotonicNN(nn.Module):
     def __init__(self, other_input_dim):
         super().__init__()
-        self.unconstrained_path = nn.Sequential(
-            nn.Linear(other_input_dim, 24),
-            nn.ReLU(),
-            nn.Linear(24, 8),
+        self.unconstrained_path = nn.Sequential(    # i.e. the small "Multi-Layer Perceptron/MLP"
+            nn.Linear(other_input_dim, 48),
+            nn.LeakyReLU(0.1),
+            nn.Linear(48, 10),
             nn.ReLU()
         )
-        
-        # Initialize weights
-        for m in self.unconstrained_path.modules():
-            if isinstance(m, nn.Linear):
-                torch.nn.init.xavier_uniform_(m.weight, gain=0.1)
-                if m.bias is not None:
-                    torch.nn.init.zeros_(m.bias)
+    # Weight initialization would occur here. by not specifing, it will be done by the optimizer using Kaiming initialization.
     
     def forward(self, x_other, x_monotonic):
-        # Get the weights from unconstrained path
-        weights = self.unconstrained_path(x_other)  # Shape: [batch_size, 8]
-        
-        # Element-wise multiplication with the monotonic features
-        weighted_features = weights * x_monotonic  # Shape: [batch_size, 8]
-        
-        # Sum up all 8 weighted features for each entry in the batch
-        # This reduces from [batch_size, 8] to [batch_size, 1]
-        return weighted_features.sum(dim=1, keepdim=True)
+        # Get the coefficients from unconstrained path
+        coefficients = self.unconstrained_path(x_other)  # Shape: [batch_size, 10]
+        monotonic_feature_contributions = coefficients * x_monotonic
+        return monotonic_feature_contributions.sum(dim=1, keepdim=True)
 
 # load dataset
 df = pd.read_csv('datacombo.csv')
@@ -70,12 +59,14 @@ df['MeanK_IOLMaster'] = df['MeanK_IOLMaster'].fillna(meank_median)
 monotonic_features_dict = {
     'constant': np.ones_like(x),
     'linear': x,
-    'logistic1': 1 / (1 + np.exp(-(x+1))),
-    'logistic2': 1 / (1 + np.exp(-(x+0.5))),
-    'logistic3': 1 / (1 + np.exp(-x)),
+    'logistic_shift_left_1': 1 / (1 + np.exp(-(x+1))),      # Shifted left by 1
+    'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x+0.5))),  # Shifted left by 0.5
+    'logistic_center': 1 / (1 + np.exp(-x)),                # Centered at 0
     'logarithmic': np.log(x - x.min() + 1),
-    'logistic4': 1 / (1 + np.exp(-(x-0.5))),
-    'logistic5': 1 / (1 + np.exp(-(x-1)))
+    'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x-0.5))), # Shifted right by 0.5
+    'logistic_shift_right_1': 1 / (1 + np.exp(-(x-1))),     # Shifted right by 1
+    'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x-1.5))), # Shifted right by 1.5
+    'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x+1.5)))   # Shifted left by 1.5
 }
 
 # Convert to DataFrame and keep as DataFrame
@@ -117,7 +108,7 @@ num_epochs = 1000
 
 # Set up K-fold cross validation with a different seed
 n_folds = 5
-kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)  # Changed to 42
+kf = KFold(n_splits=n_folds, shuffle=True, random_state=1)  
 
 # Store metrics for each fold
 fold_metrics = {

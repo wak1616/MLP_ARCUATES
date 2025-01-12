@@ -35,12 +35,14 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
     monotonic_features_dict = {
         'constant': [1.0],
         'linear': [treated_astig],
-        'logistic1': [1 / (1 + np.exp(-(treated_astig+1)))],
-        'logistic2': [1 / (1 + np.exp(-(treated_astig+0.5)))],
-        'logistic3': [1 / (1 + np.exp(-treated_astig))],
+        'logistic_shift_left_1': [1 / (1 + np.exp(-(treated_astig+1)))],
+        'logistic_shift_left_0.5': [1 / (1 + np.exp(-(treated_astig+0.5)))],
+        'logistic_center': [1 / (1 + np.exp(-treated_astig))],
         'logarithmic': [np.log(treated_astig - min(treated_astig, 0) + 1)],
-        'logistic4': [1 / (1 + np.exp(-(treated_astig-0.5)))],
-        'logistic5': [1 / (1 + np.exp(-(treated_astig-1)))]
+        'logistic_shift_right_0.5': [1 / (1 + np.exp(-(treated_astig-0.5)))],
+        'logistic_shift_right_1': [1 / (1 + np.exp(-(treated_astig-1)))],
+        'logistic_shift_right_1.5': [1 / (1 + np.exp(-(treated_astig-1.5)))],
+        'logistic_shift_left_1.5': [1 / (1 + np.exp(-(treated_astig+1.5)))]
     }
     x_monotonic = pd.DataFrame(monotonic_features_dict)
     
@@ -82,23 +84,16 @@ if __name__ == "__main__":
         def __init__(self, other_input_dim):
             super().__init__()
             self.unconstrained_path = torch.nn.Sequential(
-                torch.nn.Linear(other_input_dim, 24),
-                torch.nn.ReLU(),
-                torch.nn.Linear(24, 8),
+                torch.nn.Linear(other_input_dim, 48),
+                torch.nn.LeakyReLU(0.1),
+                torch.nn.Linear(48, 10),
                 torch.nn.ReLU()
             )
             
-            # Initialize weights
-            for m in self.unconstrained_path.modules():
-                if isinstance(m, torch.nn.Linear):
-                    torch.nn.init.xavier_uniform_(m.weight, gain=0.1)
-                    if m.bias is not None:
-                        torch.nn.init.zeros_(m.bias)
-            
         def forward(self, x_other, x_monotonic):
-            weights = self.unconstrained_path(x_other)
-            weighted_features = weights * x_monotonic
-            return weighted_features.sum(dim=1, keepdim=True)
+            coefficients = self.unconstrained_path(x_other)
+            monotonic_feature_contributions = coefficients * x_monotonic
+            return monotonic_feature_contributions.sum(dim=1, keepdim=True)
     
     # Example prediction
     try:

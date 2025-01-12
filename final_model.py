@@ -17,23 +17,16 @@ class SimpleMonotonicNN(nn.Module):
     def __init__(self, other_input_dim):
         super().__init__()
         self.unconstrained_path = nn.Sequential(
-            nn.Linear(other_input_dim, 24),
-            nn.ReLU(),
-            nn.Linear(24, 8),
+            nn.Linear(other_input_dim, 48),
+            nn.LeakyReLU(0.1),
+            nn.Linear(48, 10),
             nn.ReLU()
         )
         
-        # Initialize weights with smaller values
-        for m in self.unconstrained_path.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight, gain=0.1)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-    
     def forward(self, x_other, x_monotonic):
-        weights = self.unconstrained_path(x_other)
-        weighted_features = weights * x_monotonic
-        return weighted_features.sum(dim=1, keepdim=True)
+        coefficients = self.unconstrained_path(x_other)
+        monotonic_feature_contributions = coefficients * x_monotonic
+        return monotonic_feature_contributions.sum(dim=1, keepdim=True)
 
 # Load dataset
 df = pd.read_csv('datacombo.csv')
@@ -61,12 +54,14 @@ df['MeanK_IOLMaster'] = df['MeanK_IOLMaster'].fillna(meank_median)
 monotonic_features_dict = {
     'constant': np.ones_like(x),
     'linear': x,
-    'logistic1': 1 / (1 + np.exp(-(x+1))),
-    'logistic2': 1 / (1 + np.exp(-(x+0.5))),
-    'logistic3': 1 / (1 + np.exp(-x)),
+    'logistic_shift_left_1': 1 / (1 + np.exp(-(x+1))),      # Shifted left by 1
+    'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x+0.5))),  # Shifted left by 0.5
+    'logistic_center': 1 / (1 + np.exp(-x)),                # Centered at 0
     'logarithmic': np.log(x - x.min() + 1),
-    'logistic4': 1 / (1 + np.exp(-(x-0.5))),
-    'logistic5': 1 / (1 + np.exp(-(x-1)))
+    'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x-0.5))), # Shifted right by 0.5
+    'logistic_shift_right_1': 1 / (1 + np.exp(-(x-1))),     # Shifted right by 1
+    'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x-1.5))), # Shifted right by 1.5
+    'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x+1.5)))   # Shifted left by 1.5
 }
 
 # Convert to DataFrame and keep as DataFrame

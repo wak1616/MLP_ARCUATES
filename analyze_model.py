@@ -10,23 +10,21 @@ class SimpleMonotonicNN(torch.nn.Module):
     def __init__(self, other_input_dim):
         super().__init__()
         self.unconstrained_path = torch.nn.Sequential(
-            torch.nn.Linear(other_input_dim, 24),
-            torch.nn.ReLU(),
-            torch.nn.Linear(24, 8),  # 8 features including logistic
+            torch.nn.Linear(other_input_dim, 48),
+            torch.nn.LeakyReLU(0.1),
+            torch.nn.Linear(48, 10),
             torch.nn.ReLU()
         )
-        
-        # Initialize weights
-        for m in self.unconstrained_path.modules():
-            if isinstance(m, torch.nn.Linear):
-                torch.nn.init.xavier_uniform_(m.weight, gain=0.1)
-                if m.bias is not None:
-                    torch.nn.init.zeros_(m.bias)
     
     def forward(self, x_other, x_monotonic):
-        weights = self.unconstrained_path(x_other)
-        weighted_features = weights * x_monotonic
-        return weighted_features.sum(dim=1, keepdim=True)
+        # Get the coefficients from unconstrained path
+        coefficients = self.unconstrained_path(x_other)  # Shape: [batch_size, 10]
+        
+        # Element-wise multiplication with the monotonic features
+        monotonic_feature_contributions = coefficients * x_monotonic
+        
+        # Sum up all feature contributions for each entry in the batch
+        return monotonic_feature_contributions.sum(dim=1, keepdim=True)
 
 def load_model_and_components(weights_path='model_weights.pth', components_path='model_components.joblib'):
     # Load model weights
@@ -66,12 +64,14 @@ def analyze_model_performance():
     monotonic_features_dict = {
         'constant': np.ones_like(x),
         'linear': x,
-        'logistic1': 1 / (1 + np.exp(-(x+1))),
-        'logistic2': 1 / (1 + np.exp(-(x+0.5))),
-        'logistic3': 1 / (1 + np.exp(-x)),
+        'logistic_shift_left_1': 1 / (1 + np.exp(-(x+1))),
+        'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x+0.5))),
+        'logistic_center': 1 / (1 + np.exp(-x)),
         'logarithmic': np.log(x - x.min() + 1),
-        'logistic4': 1 / (1 + np.exp(-(x-0.5))),
-        'logistic5': 1 / (1 + np.exp(-(x-1)))
+        'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x-0.5))),
+        'logistic_shift_right_1': 1 / (1 + np.exp(-(x-1))),
+        'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x-1.5))),
+        'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x+1.5)))
     }
     
     X_monotonic = pd.DataFrame(monotonic_features_dict)
@@ -159,31 +159,36 @@ def analyze_feature_importance(model, data_sample):
     print("-----------------")
     
     # Feature names for reference - updated to match monotonic_features_dict
-    monotonic_features = ['Constant', 'Linear', 'Logistic1', 'Logistic2', 
-                         'Logistic3', 'Logarithmic', 'Logistic4', 'Logistic5']
+    monotonic_features = [
+        'Constant', 'Linear', 
+        'Logistic Shift Left 1', 'Logistic Shift Left 0.5',
+        'Logistic Center', 'Logarithmic',
+        'Logistic Shift Right 0.5', 'Logistic Shift Right 1',
+        'Logistic Shift Right 1.5', 'Logistic Shift Left 1.5'
+    ]
     
-    # Get weights from the model for this sample
+    # Get coefficients from the model for this sample
     with torch.no_grad():
-        weights = model.unconstrained_path(data_sample['x_other'])
+        coefficients = model.unconstrained_path(data_sample['x_other'])
     
     # Get monotonic features for this sample
     x_monotonic = data_sample['x_monotonic']
     
     # Calculate contribution of each feature
-    contributions = weights * x_monotonic
-    contributions = contributions.numpy()[0]
+    monotonic_feature_contributions = coefficients * x_monotonic
+    monotonic_feature_contributions = monotonic_feature_contributions.numpy()[0]
     
     # Print analysis
     print("\nFeature Contributions:")
-    for i, (feature, contribution) in enumerate(zip(monotonic_features, contributions)):
-        print(f"{feature:12} Weight: {weights[0][i]:8.4f}  "
+    for i, (feature, contribution) in enumerate(zip(monotonic_features, monotonic_feature_contributions)):
+        print(f"{feature:12} Coefficient: {coefficients[0][i]:8.4f}  "
               f"Value: {x_monotonic[0][i]:8.4f}  "
               f"Contribution: {contribution:8.4f}")
     
     # Calculate percentage contributions
-    total_contribution = abs(contributions).sum()
+    total_contribution = abs(monotonic_feature_contributions).sum()
     print("\nRelative Importance:")
-    for feature, contribution in zip(monotonic_features, contributions):
+    for feature, contribution in zip(monotonic_features, monotonic_feature_contributions):
         percentage = (abs(contribution) / total_contribution) * 100
         print(f"{feature:12} {percentage:6.2f}%")
 
@@ -222,19 +227,24 @@ def plot_feature_importance(model, data_sample):
     Create a bar plot showing the relative importance of monotonic features
     """
     # Feature names
-    monotonic_features = ['Constant', 'Linear', 'Logistic1', 'Logistic2', 
-                         'Logistic3', 'Logarithmic', 'Logistic4', 'Logistic5']
+    monotonic_features = [
+        'Constant', 'Linear', 
+        'Logistic Shift Left 1', 'Logistic Shift Left 0.5',
+        'Logistic Center', 'Logarithmic',
+        'Logistic Shift Right 0.5', 'Logistic Shift Right 1',
+        'Logistic Shift Right 1.5', 'Logistic Shift Left 1.5'
+    ]
     
-    # Get weights and contributions
+    # Get coefficients and contributions
     with torch.no_grad():
-        weights = model.unconstrained_path(data_sample['x_other'])
+        coefficients = model.unconstrained_path(data_sample['x_other'])
     x_monotonic = data_sample['x_monotonic']
-    contributions = weights * x_monotonic
-    contributions = contributions.numpy()[0]
+    monotonic_feature_contributions = coefficients * x_monotonic
+    monotonic_feature_contributions = monotonic_feature_contributions.numpy()[0]
     
     # Calculate absolute percentage contributions
-    total_contribution = abs(contributions).sum()
-    percentages = [(abs(contribution) / total_contribution) * 100 for contribution in contributions]
+    total_contribution = abs(monotonic_feature_contributions).sum()
+    percentages = [(abs(contribution) / total_contribution) * 100 for contribution in monotonic_feature_contributions]
     
     # Create bar plot
     plt.figure(figsize=(12, 6))
@@ -287,11 +297,21 @@ if __name__ == "__main__":
     
     # Add feature analysis
     print("\nAnalyzing sample prediction...")
+    x = 1 # set the treated_astig here.
     sample_data = {
-        'x_other': torch.FloatTensor(other_scaler.transform([[65, 0.5, 44.0, 1.0, 12.0]])),
-        'x_monotonic': torch.FloatTensor(monotonic_scaler.transform([
-            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]  # Include logistic
-        ]))
+        'x_other': torch.FloatTensor(other_scaler.transform([[65, -1, 44.0, x*2, 12.0]])),
+        'x_monotonic': torch.FloatTensor(monotonic_scaler.transform([[
+            x,  # constant
+            x,  # linear
+            x,  # logistic_shift_left_1
+            x,  # logistic_shift_left_0.5
+            x,  # logistic_center
+            x,  # logarithmic
+            x,  # logistic_shift_right_0.5
+            x,  # logistic_shift_right_1
+            x,  # logistic_shift_right_1.5
+            x   # logistic_shift_left_1.5
+        ]]))
     }
     analyze_feature_importance(model, sample_data) 
     
