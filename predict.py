@@ -2,9 +2,10 @@ import torch
 import pandas as pd
 import numpy as np
 import joblib
+import torch.nn as nn
 
 def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster, 
-                         treatment_astigmatism, wtw_iolmaster, treated_astig, 
+                         residual_astigmatism, wtw_iolmaster, treated_astig, 
                          weights_path='model_weights.pth',
                          components_path='model_components.joblib'):
     
@@ -14,12 +15,11 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
     # Load other components
     components = joblib.load(components_path)
     other_scaler = components['other_scaler']
-    monotonic_scaler = components['monotonic_scaler']
     target_scaler = components['target_scaler']
     label_encoder = components['label_encoder']
     
     # Verify all components are loaded
-    if not all([model_state_dict, other_scaler, monotonic_scaler, target_scaler, label_encoder]):
+    if not all([model_state_dict, other_scaler, target_scaler, label_encoder]):
         raise ValueError("Missing components in the model checkpoint")
     
     # Create DataFrames for features with column names
@@ -27,27 +27,10 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
         'Age': [age],
         'Steep_axis_term': [steep_axis_term],
         'MeanK_IOLMaster': [meank_iolmaster],
-        'Treatment_astigmatism': [treatment_astigmatism],
-        'WTW_IOLMaster': [wtw_iolmaster]
+        'Residual_Astigmatism': [residual_astigmatism],
+        'WTW_IOLMaster': [wtw_iolmaster],
+        'treated_astig': [treated_astig]
     })
-    
-    # Create monotonic features using DataFrame
-    monotonic_features_dict = {
-        'constant': [1.0],
-        'linear': [treated_astig],
-        'logistic_shift_left_1': [1 / (1 + np.exp(-(treated_astig+1)))],
-        'logistic_shift_left_0.5': [1 / (1 + np.exp(-(treated_astig+0.5)))],
-        'logistic_center': [1 / (1 + np.exp(-treated_astig))],
-        'logarithmic': [np.log(treated_astig - min(treated_astig, 0) + 1)],
-        'logistic_shift_right_0.5': [1 / (1 + np.exp(-(treated_astig-0.5)))],
-        'logistic_shift_right_1': [1 / (1 + np.exp(-(treated_astig-1)))],
-        'logistic_shift_right_1.5': [1 / (1 + np.exp(-(treated_astig-1.5)))],
-        'logistic_shift_left_1.5': [1 / (1 + np.exp(-(treated_astig+1.5)))]
-    }
-    x_monotonic = pd.DataFrame(monotonic_features_dict)
-    
-    # Transform type using label encoder
-    # other_data['type'] = label_encoder.transform([other_data['type'].iloc[0]])
     
     # Scale the features while maintaining DataFrame structure
     other_scaled = pd.DataFrame(
@@ -56,54 +39,66 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
         index=other_data.index
     )
     
-    monotonic_scaled = pd.DataFrame(
-        monotonic_scaler.transform(x_monotonic),
-        columns=x_monotonic.columns,
-        index=x_monotonic.index
-    )
-    
     # Convert to tensors
     x_other = torch.FloatTensor(other_scaled.values)
-    x_monotonic = torch.FloatTensor(monotonic_scaled.values)
     
+    # Define the model architecture locally
+    class ArcuateSweepPredictor(nn.Module):
+        def __init__(self, other_input_dim):
+            super().__init__()
+            self.unconstrained_path = nn.Sequential(
+                nn.Linear(other_input_dim, 48),
+                nn.LeakyReLU(0.1),
+                nn.Linear(48, 10),
+                nn.ReLU(),
+                nn.Linear(10, 1)
+            )
+            
+        def forward(self, x_other):
+            prediction = self.unconstrained_path(x_other)
+            return prediction
+
     # Load model architecture and weights
-    model = SimpleMonotonicNN(len(other_data.columns))
+    model = ArcuateSweepPredictor(len(other_data.columns))
     model.load_state_dict(model_state_dict)
     model.eval()
     
     # Make prediction
     with torch.no_grad():
-        prediction_scaled = model(x_other, x_monotonic)
+        prediction_scaled = model(x_other)
         prediction = target_scaler.inverse_transform(prediction_scaled.numpy())
         prediction = max(0.0, float(prediction.item()))  # Ensure non-negative
         return prediction
 
 # Example usage
 if __name__ == "__main__":
-    class SimpleMonotonicNN(torch.nn.Module):
+    # Define the model architecture locally (MUST match the one used in prediction function)
+    class ArcuateSweepPredictor(nn.Module):
         def __init__(self, other_input_dim):
             super().__init__()
-            self.unconstrained_path = torch.nn.Sequential(
-                torch.nn.Linear(other_input_dim, 48),
-                torch.nn.LeakyReLU(0.1),
-                torch.nn.Linear(48, 10),
-                torch.nn.ReLU()
+            self.unconstrained_path = nn.Sequential(
+                nn.Linear(other_input_dim, 48),
+                nn.LeakyReLU(0.1),
+                nn.Linear(48, 10),
+                nn.ReLU(),
+                nn.Linear(10, 1)
             )
             
-        def forward(self, x_other, x_monotonic):
-            coefficients = self.unconstrained_path(x_other)
-            monotonic_feature_contributions = coefficients * x_monotonic
-            return monotonic_feature_contributions.sum(dim=1, keepdim=True)
+        def forward(self, x_other):
+            prediction = self.unconstrained_path(x_other)
+            return prediction
     
     # Example prediction
     try:
         # Get treated_astig value first
         treated_astig_total = 0.4  # default value
+        # Define the residual astigmatism value
+        residual_astig_value = 0.2 # <<< ADD NEW EXAMPLE VALUE
         prediction = predict_arcuate_sweep(
             age=65,
             steep_axis_term=1,
             meank_iolmaster= 45,
-            treatment_astigmatism=treated_astig_total/2,  # automatically matches treated_astig
+            residual_astigmatism=residual_astig_value, # <<< UPDATE PARAMETER NAME AND VALUE
             wtw_iolmaster=12.0,
             treated_astig=treated_astig_total/2
         )

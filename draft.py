@@ -17,22 +17,22 @@ monotonic_scaler = StandardScaler()
 target_scaler = StandardScaler()
 
 
-class SimpleMonotonicNN(nn.Module):
+class ArcuateSweepPredictor(nn.Module):
     def __init__(self, other_input_dim):
         super().__init__()
-        self.unconstrained_path = nn.Sequential(    # i.e. the small "Multi-Layer Perceptron/MLP"
+        self.unconstrained_path = nn.Sequential(
             nn.Linear(other_input_dim, 48),
             nn.LeakyReLU(0.1),
             nn.Linear(48, 10),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Linear(10, 1)
         )
     # Weight initialization would occur here. by not specifing, it will be done by the optimizer using Kaiming initialization.
     
-    def forward(self, x_other, x_monotonic):
-        # Get the coefficients from unconstrained path
-        coefficients = self.unconstrained_path(x_other)  # Shape: [batch_size, 10]
-        monotonic_feature_contributions = coefficients * x_monotonic
-        return monotonic_feature_contributions.sum(dim=1, keepdim=True)
+    def forward(self, x_other):
+        # Get the final prediction from unconstrained path
+        prediction = self.unconstrained_path(x_other)
+        return prediction
 
 # load dataset
 df = pd.read_csv('datacombo.csv')
@@ -46,7 +46,7 @@ y = df[target]  # Define y from the target column
 x = df['treated_astig'].to_numpy()  # this value will pertain to a specific arcuate.
 
 other_features = [
-    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
+    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Residual_Astigmatism', 'WTW_IOLMaster', 'treated_astig'
 ]
 
 # Handle NaN values
@@ -55,22 +55,6 @@ meank_median = df['MeanK_IOLMaster'].median()
 df['WTW_IOLMaster'] = df['WTW_IOLMaster'].fillna(wtw_median)
 df['MeanK_IOLMaster'] = df['MeanK_IOLMaster'].fillna(meank_median)
 
-# Create the monotonic feature transformations
-monotonic_features_dict = {
-    'constant': np.ones_like(x),
-    'linear': x,
-    'logistic_shift_left_1': 1 / (1 + np.exp(-(x+1))),      # Shifted left by 1
-    'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x+0.5))),  # Shifted left by 0.5
-    'logistic_center': 1 / (1 + np.exp(-x)),                # Centered at 0
-    'logarithmic': np.log(x - x.min() + 1),
-    'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x-0.5))), # Shifted right by 0.5
-    'logistic_shift_right_1': 1 / (1 + np.exp(-(x-1))),     # Shifted right by 1
-    'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x-1.5))), # Shifted right by 1.5
-    'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x+1.5)))   # Shifted left by 1.5
-}
-
-# Convert to DataFrame and keep as DataFrame
-X_monotonic = pd.DataFrame(monotonic_features_dict)
 X_other = df[other_features].copy()
 # X_other['type'] = le.fit_transform(X_other['type'])
 
@@ -81,12 +65,6 @@ X_other_scaled = pd.DataFrame(
     index=X_other.index
 )
 
-X_monotonic_scaled = pd.DataFrame(
-    monotonic_scaler.fit_transform(X_monotonic),
-    columns=X_monotonic.columns,
-    index=X_monotonic.index
-)
-
 y_scaled = pd.DataFrame(
     target_scaler.fit_transform(y.values.reshape(-1, 1)),
     columns=['target'],
@@ -95,12 +73,10 @@ y_scaled = pd.DataFrame(
 
 # Convert to tensors only when needed for the model
 x_other_tensor = torch.FloatTensor(X_other_scaled.values)
-x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values)
 y_tensor = torch.FloatTensor(y_scaled.values)
 
 # Convert data to numpy for splitting
 X_other_np = x_other_tensor.numpy()
-X_monotonic_np = x_monotonic_tensor.numpy()
 y_np = y_tensor.numpy()
 
 # Set training parameters
@@ -128,13 +104,11 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
     # Split data for this fold
     x_other_train = torch.FloatTensor(X_other_np[train_idx])
     x_other_val = torch.FloatTensor(X_other_np[val_idx])
-    x_monotonic_train = torch.FloatTensor(X_monotonic_np[train_idx])
-    x_monotonic_val = torch.FloatTensor(X_monotonic_np[val_idx])
     y_train = torch.FloatTensor(y_np[train_idx])
     y_val = torch.FloatTensor(y_np[val_idx])
 
     # Initialize model and optimizer for this fold
-    model = SimpleMonotonicNN(
+    model = ArcuateSweepPredictor(
         other_input_dim=len(other_features)
     )
     
@@ -157,7 +131,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
     for epoch in range(num_epochs):
         # Training
         model.train()
-        outputs = model(x_other_train, x_monotonic_train)
+        outputs = model(x_other_train)
         loss = criterion(outputs, y_train)
         epoch_loss = loss.item()
         
@@ -169,7 +143,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
         # Validation
         model.eval()
         with torch.no_grad():
-            val_outputs = model(x_other_val, x_monotonic_val)
+            val_outputs = model(x_other_val)
             val_outputs_unscaled = target_scaler.inverse_transform(val_outputs.numpy())
             val_outputs_unscaled = np.maximum(0.0, val_outputs_unscaled)  # Ensure non-negative
             val_outputs = torch.FloatTensor(target_scaler.transform(val_outputs_unscaled))
@@ -191,7 +165,7 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_other_np)):
     # Final evaluation for this fold
     model.eval()
     with torch.no_grad():
-        final_val_outputs = model(x_other_val, x_monotonic_val)
+        final_val_outputs = model(x_other_val)
         final_val_loss = criterion(final_val_outputs, y_val)
         
         # Convert predictions back to original scale

@@ -10,23 +10,22 @@ from torch.utils.data import TensorDataset, DataLoader
 # Initialize encoders and scalers
 le = LabelEncoder()
 other_scaler = StandardScaler()
-monotonic_scaler = StandardScaler()
 target_scaler = StandardScaler()
 
-class SimpleMonotonicNN(nn.Module):
+class ArcuateSweepPredictor(nn.Module):
     def __init__(self, other_input_dim):
         super().__init__()
         self.unconstrained_path = nn.Sequential(
             nn.Linear(other_input_dim, 48),
             nn.LeakyReLU(0.1),
             nn.Linear(48, 10),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Linear(10, 1)
         )
         
-    def forward(self, x_other, x_monotonic):
-        coefficients = self.unconstrained_path(x_other)
-        monotonic_feature_contributions = coefficients * x_monotonic
-        return monotonic_feature_contributions.sum(dim=1, keepdim=True)
+    def forward(self, x_other):
+        prediction = self.unconstrained_path(x_other)
+        return prediction
 
 # Load dataset
 df = pd.read_csv('datacombo.csv')
@@ -41,7 +40,7 @@ y = df[target]
 x = df['treated_astig'].to_numpy()
 
 other_features = [
-    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Treatment_astigmatism', 'WTW_IOLMaster'
+    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Residual_Astigmatism', 'WTW_IOLMaster', 'treated_astig'
 ]
 
 # Handle NaN values
@@ -50,24 +49,9 @@ meank_median = df['MeanK_IOLMaster'].median()
 df['WTW_IOLMaster'] = df['WTW_IOLMaster'].fillna(wtw_median)
 df['MeanK_IOLMaster'] = df['MeanK_IOLMaster'].fillna(meank_median)
 
-# Create monotonic features
-monotonic_features_dict = {
-    'constant': np.ones_like(x),
-    'linear': x,
-    'logistic_shift_left_1': 1 / (1 + np.exp(-(x+1))),      # Shifted left by 1
-    'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x+0.5))),  # Shifted left by 0.5
-    'logistic_center': 1 / (1 + np.exp(-x)),                # Centered at 0
-    'logarithmic': np.log(x - x.min() + 1),
-    'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x-0.5))), # Shifted right by 0.5
-    'logistic_shift_right_1': 1 / (1 + np.exp(-(x-1))),     # Shifted right by 1
-    'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x-1.5))), # Shifted right by 1.5
-    'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x+1.5)))   # Shifted left by 1.5
-}
 
 # Convert to DataFrame and keep as DataFrame
-X_monotonic = pd.DataFrame(monotonic_features_dict)
 X_other = df[other_features].copy()
-# X_other['type'] = le.fit_transform(X_other['type'])
 
 # Scale while maintaining DataFrame structure
 X_other_scaled = pd.DataFrame(
@@ -76,11 +60,7 @@ X_other_scaled = pd.DataFrame(
     index=X_other.index
 )
 
-X_monotonic_scaled = pd.DataFrame(
-    monotonic_scaler.fit_transform(X_monotonic),
-    columns=X_monotonic.columns,
-    index=X_monotonic.index
-)
+
 
 y_scaled = pd.DataFrame(
     target_scaler.fit_transform(y.values.reshape(-1, 1)),
@@ -90,16 +70,16 @@ y_scaled = pd.DataFrame(
 
 # Convert to tensors
 x_other_tensor = torch.FloatTensor(X_other_scaled.values)
-x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values)
+# x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values)
 y_tensor = torch.FloatTensor(y_scaled.values)
 
 # Create dataset and dataloader
 batch_size = 32  # You can adjust this value
-dataset = TensorDataset(x_other_tensor, x_monotonic_tensor, y_tensor)
+dataset = TensorDataset(x_other_tensor, y_tensor)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 # Initialize model
-model = SimpleMonotonicNN(len(other_features))
+model = ArcuateSweepPredictor(len(other_features))
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
 
@@ -115,8 +95,8 @@ for epoch in range(num_epochs):
     epoch_loss = 0
     batch_count = 0
     
-    for batch_other, batch_monotonic, batch_y in dataloader:
-        outputs = model(batch_other, batch_monotonic)
+    for batch_other, batch_y in dataloader:
+        outputs = model(batch_other)
         loss = criterion(outputs, batch_y)
         
         optimizer.zero_grad()
@@ -138,7 +118,6 @@ for epoch in range(num_epochs):
         # Save other components using pickle or joblib
         joblib.dump({
             'other_scaler': other_scaler,
-            'monotonic_scaler': monotonic_scaler,
             'target_scaler': target_scaler,
             'label_encoder': le
         }, 'model_components.joblib')
@@ -156,7 +135,7 @@ for epoch in range(num_epochs):
 print("\nFINAL MODEL PERFORMANCE:")
 model.eval()
 with torch.no_grad():
-    final_outputs = model(x_other_tensor, x_monotonic_tensor)
+    final_outputs = model(x_other_tensor)
     predictions = target_scaler.inverse_transform(final_outputs.numpy())
     predictions = np.maximum(0.0, predictions)  # Ensure non-negative
     y_original = target_scaler.inverse_transform(y_tensor.numpy())
