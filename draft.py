@@ -35,18 +35,18 @@ class ArcuateSweepPredictor(nn.Module):
         return prediction
 
 # load dataset
-df = pd.read_csv('datacombo.csv')
+df = pd.read_csv('datafinal.csv')
 
 # Filter out 'single' type entries
-df = df[df['type'] != 'single']
+df = df[df['Type'] != 'single']
 
 # Setting up features and target
-target = ['Arcuate_Sweep']
+target = ['Arcuate_sweep_total']
 y = df[target]  # Define y from the target column
-x = df['treated_astig'].to_numpy()  # this value will pertain to a specific arcuate.
+x = df['Treated_astig'].to_numpy()  # this value will pertain to a specific arcuate.
 
 other_features = [
-    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Residual_Astigmatism', 'WTW_IOLMaster', 'treated_astig'
+    'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'WTW_IOLMaster', 'Treated_astig'
 ]
 
 # Handle NaN values

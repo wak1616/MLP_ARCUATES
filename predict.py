@@ -4,10 +4,7 @@ import numpy as np
 import joblib
 import torch.nn as nn
 
-def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster, 
-                         residual_astigmatism, wtw_iolmaster, treated_astig, 
-                         weights_path='model_weights.pth',
-                         components_path='model_components.joblib'):
+def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster, wtw_iolmaster, treated_astig, weights_path='model_weights.pth', components_path='model_components.joblib'):
     
     # Load model weights safely
     model_state_dict = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=True)
@@ -27,9 +24,8 @@ def predict_arcuate_sweep(age, steep_axis_term, meank_iolmaster,
         'Age': [age],
         'Steep_axis_term': [steep_axis_term],
         'MeanK_IOLMaster': [meank_iolmaster],
-        'Residual_Astigmatism': [residual_astigmatism],
         'WTW_IOLMaster': [wtw_iolmaster],
-        'treated_astig': [treated_astig]
+        'Treated_astig': [treated_astig]
     })
     
     # Scale the features while maintaining DataFrame structure
@@ -92,13 +88,10 @@ if __name__ == "__main__":
     try:
         # Get treated_astig value first
         treated_astig_total = 0.4  # default value
-        # Define the residual astigmatism value
-        residual_astig_value = 0.2 # <<< ADD NEW EXAMPLE VALUE
         prediction = predict_arcuate_sweep(
             age=65,
             steep_axis_term=1,
-            meank_iolmaster= 45,
-            residual_astigmatism=residual_astig_value, # <<< UPDATE PARAMETER NAME AND VALUE
+            meank_iolmaster=45,
             wtw_iolmaster=12.0,
             treated_astig=treated_astig_total/2
         )

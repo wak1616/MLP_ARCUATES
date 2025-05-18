@@ -4,7 +4,7 @@ A Python project implementing a Multi-Layer Perceptron (MLP) neural network trai
 
 ## Project Structure
 
-*   `datacombo.csv`: The dataset containing patient and treatment information.
+*   `datafinal.csv`: The dataset containing patient and treatment information.
 *   `draft.py`: Script for experimenting with the model architecture and training using K-Fold cross-validation. Includes detailed printouts and metrics for each fold.
 *   `final_model.py`: Script for training the final model on the entire dataset and saving the trained model weights (`model_weights.pth`) and necessary preprocessing components (`model_components.joblib`).
 *   `predict.py`: Script to load the saved model and components to make predictions on new, single-instance data.
@@ -36,16 +36,15 @@ A Python project implementing a Multi-Layer Perceptron (MLP) neural network trai
 
 The model is a feedforward neural network (MLP) with the following structure:
 
-*   **Input Layer:** Takes 6 features:
+*   **Input Layer:** Takes 5 features:
     *   `Age`
     *   `Steep_axis_term`
     *   `MeanK_IOLMaster`
-    *   `Residual_Astigmatism`
     *   `WTW_IOLMaster`
-    *   `treated_astig`
-*   **Hidden Layer 1:** Linear(6 -> 48) + LeakyReLU(0.1)
+    *   `Treated_astig`
+*   **Hidden Layer 1:** Linear(5 -> 48) + LeakyReLU(0.1)
 *   **Hidden Layer 2:** Linear(48 -> 10) + ReLU()
-*   **Output Layer:** Linear(10 -> 1) (Predicts `Arcuate_Sweep`)
+*   **Output Layer:** Linear(10 -> 1) (Predicts `Arcuate_sweep_total`)
 
 ## Usage
 
@@ -92,4 +91,4 @@ Key Python libraries used:
 *   seaborn
 *   graphviz (Python library)
 
-*(Note: The Graphviz system software is also required for `visualize_architecture.py`)* 
+*(Note: The Graphviz system software is also required for `visualize_architecture.py`)*

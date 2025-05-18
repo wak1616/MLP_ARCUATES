@@ -21,18 +21,18 @@ def analyze_model_performance():
     model_state_dict, components = load_model_and_components()
     
     # Load original data
-    df = pd.read_csv('datacombo.csv')
+    df = pd.read_csv('datafinal.csv')
 
     # Filter out 'single' type entries
-    df = df[df['type'] != 'single']
+    df = df[df['Type'] != 'single']
     
     # Prepare features as in final_model.py
-    target = ['Arcuate_Sweep']
+    target = ['Arcuate_sweep_total']
     y = df[target]
-    x = df['treated_astig'].to_numpy()
+    x = df['Treated_astig'].to_numpy()
     
     other_features = [
-        'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'Residual_Astigmatism', 'WTW_IOLMaster'
+        'Age', 'Steep_axis_term', 'MeanK_IOLMaster', 'WTW_IOLMaster', 'Treated_astig'
     ]
     
     # Handle NaN values
@@ -41,50 +41,38 @@ def analyze_model_performance():
     df['WTW_IOLMaster'] = df['WTW_IOLMaster'].fillna(wtw_median)
     df['MeanK_IOLMaster'] = df['MeanK_IOLMaster'].fillna(meank_median)
     
-    # Create features
-    monotonic_features_dict = {
-        'constant': np.ones_like(x),
-        'linear': x,
-        'logistic_shift_left_1': 1 / (1 + np.exp(-(x+1))),
-        'logistic_shift_left_0.5': 1 / (1 + np.exp(-(x+0.5))),
-        'logistic_center': 1 / (1 + np.exp(-x)),
-        'logarithmic': np.log(x - x.min() + 1),
-        'logistic_shift_right_0.5': 1 / (1 + np.exp(-(x-0.5))),
-        'logistic_shift_right_1': 1 / (1 + np.exp(-(x-1))),
-        'logistic_shift_right_1.5': 1 / (1 + np.exp(-(x-1.5))),
-        'logistic_shift_left_1.5': 1 / (1 + np.exp(-(x+1.5)))
-    }
-    
-    X_monotonic = pd.DataFrame(monotonic_features_dict)
     X_other = df[other_features].copy()
-    
-    # Get scalers and encoder from components
     other_scaler = components['other_scaler']
-    monotonic_scaler = components['monotonic_scaler']
     target_scaler = components['target_scaler']
-    # label_encoder = components['label_encoder']
-    
-    # Transform and scale features
-    # X_other['type'] = label_encoder.transform(X_other['type'])
     X_other_scaled = pd.DataFrame(
         other_scaler.transform(X_other),
         columns=X_other.columns
     )
-    X_monotonic_scaled = pd.DataFrame(
-        monotonic_scaler.transform(X_monotonic),
-        columns=X_monotonic.columns
-    )
+    
+    # Define the model architecture
+    class ArcuateSweepPredictor(nn.Module):
+        def __init__(self, other_input_dim):
+            super().__init__()
+            self.unconstrained_path = nn.Sequential(
+                nn.Linear(other_input_dim, 48),
+                nn.LeakyReLU(0.1),
+                nn.Linear(48, 10),
+                nn.ReLU(),
+                nn.Linear(10, 1)
+            )
+        def forward(self, x_other):
+            prediction = self.unconstrained_path(x_other)
+            return prediction
     
     # Initialize and load model
-    model = SimpleMonotonicNN(len(other_features))
+    model = ArcuateSweepPredictor(len(other_features))
     model.load_state_dict(model_state_dict)
     model.eval()
     
     # Make predictions
     with torch.no_grad():
         x_other_tensor = torch.FloatTensor(X_other_scaled.values)
-        x_monotonic_tensor = torch.FloatTensor(X_monotonic_scaled.values)
-        predictions_scaled = model(x_other_tensor, x_monotonic_tensor)
+        predictions_scaled = model(x_other_tensor)
         predictions = target_scaler.inverse_transform(predictions_scaled.numpy())
         predictions = np.maximum(0.0, predictions)  # Ensure non-negative
     
@@ -134,31 +122,21 @@ def analyze_model_performance():
 
 def plot_treated_astig_vs_sweep():
     """
-    Plot treated_astig against Arcuate_Sweep
+    Plot Treated_astig against Arcuate_sweep_total
     """
     # Load data
-    df = pd.read_csv('datacombo.csv')
-    
-    # Create plot
+    df = pd.read_csv('datafinal.csv')
     plt.figure(figsize=(10, 6))
-    plt.scatter(df['treated_astig'], df['Arcuate_Sweep'], alpha=0.5)
+    plt.scatter(df['Treated_astig'], df['Arcuate_sweep_total'], alpha=0.5)
     plt.xlabel('Treated Astigmatism')
-    plt.ylabel('Arcuate Sweep')
-    plt.title('Treated Astigmatism vs Arcuate Sweep')
-    
-    # Add trend line
-    z = np.polyfit(df['treated_astig'], df['Arcuate_Sweep'], 1)
+    plt.ylabel('Arcuate Sweep Total')
+    plt.title('Treated Astigmatism vs Arcuate Sweep Total')
+    z = np.polyfit(df['Treated_astig'], df['Arcuate_sweep_total'], 1)
     p = np.poly1d(z)
-    plt.plot(df['treated_astig'], p(df['treated_astig']), "r--", alpha=0.8)
-    
-    # Set both axes to start at 0
+    plt.plot(df['Treated_astig'], p(df['Treated_astig']), "r--", alpha=0.8)
     plt.xlim(left=0)
     plt.ylim(bottom=0)
-    
-    # Add grid
     plt.grid(True, alpha=0.3)
-    
-    # Save plot
     plt.savefig('treated_astig_vs_sweep.png')
     plt.close()
 
