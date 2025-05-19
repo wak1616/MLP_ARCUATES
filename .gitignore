@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 *.pth
 *.pkl
+datafinal.csv
+*:Zone.Identifier
