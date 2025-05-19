@@ -87,7 +87,7 @@ if __name__ == "__main__":
     # Example prediction
     try:
         # Get treated_astig value first
-        treated_astig_total = 0.4  # default value
+        treated_astig_total = .5  # default value
         prediction = predict_arcuate_sweep(
             age=65,
             steep_axis_term=1,
